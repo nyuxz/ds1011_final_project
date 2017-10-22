@@ -1,0 +1,43 @@
+\documentclass[a4paper]{article}
+
+%% Language and font encodings
+\usepackage[english]{babel}
+\usepackage[utf8x]{inputenc}
+\usepackage[T1]{fontenc}
+
+%% Sets page size and margins
+\usepackage[a4paper,top=3cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+%% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\title{DS1011 Project Proposal}
+\author{Qianyu Cheng, Luyu Jin, Yiran Xu, Xinsheng Zhang
+}
+
+\begin{document}
+\maketitle
+
+
+\section{Topic}
+
+We would like to work on Natural Language Inference (NLI), also called Recognizing Textual Entailment (RTE), which is concerned with determining entailment and contradiction relationship between a hypothesis and a premise. The concept of NLI is widely employed in a variety of language modeling tasks, so we believe that our implementation of state-of-the-art models for NLI tasks can be served as a helpful reference for future works. \\
+
+\section{Data}
+We plan to use Stanford Natural Language Inference (SNLI) corpus as our dataset. This dataset contains 570K sentence pairs\cite{Bowman15}; all pairs are labeled for entailment, contradiction, and neutral. Compared with previous dataset resources for NLI tasks, SNLI is superior in terms of corpus size, quality, and indeterminacy. \\
+
+
+\section{Literature Review}
+We would use continuous bag of words (CBOW) combined with semi-deep MLP as our baseline. We would implement two other approach which can achieve state-of-the-art results to improve the performance of the baseline model. \\
+
+\noindent The first proposed model composes of four major components: word-embedding, sequence encoder, composition layer, and top-layer-classifier. The representation of each word concatenates embeddings learned at two levels. The model uses stacked biLSTM as the encoder and proposes intra-sentence gate-attention to compose fixed-length vector representations\cite{Chen17}. Cross-entropy loss is used in training while accuracy is used to compare generalization performance. \\
+
+\noindent The second proposed we will use a decomposable attention model. We first create a soft alignment matrix using neural attention and then decompose the task into subproblems that are solved separately\cite{Parikh16}. Specifically, each word is represented by an embedding vector, which prepares the creation of the soft alignment matrix using neural attention. The core model consists of: attend, compare, and aggregate. Multi-class cross-entropy loss with dropout regularization is used for training and accuracy the reporting evaluation metrics.  
+
+\bibliographystyle{alpha}
+\bibliography{sample}
+
+\end{document}
