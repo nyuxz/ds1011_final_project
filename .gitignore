@@ -1,6 +1,9 @@
 # Prerequisites
 *.d
 
+# all the papers
+*.pdf
+
 # Object files
 *.o
 *.ko
