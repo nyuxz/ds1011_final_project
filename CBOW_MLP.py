@@ -24,9 +24,9 @@ labels.build_vocab(train)
 train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=64, device=-1)
 
 
-# A Multi-Layer Perceptron (MLP)
-class MLPClassifier(nn.Module): # inheriting from nn.Module!
-    
+# Continuous Bag of Words (CBOW) + Multi-Layer Perceptron (MLP)
+class CBOW_MLP(nn.Module): 
+
     def __init__(self, vocab_size, embedding_dim, hidden_dim, num_labels):
         """
         @param vocab_size: size of the vocabulary
@@ -34,14 +34,13 @@ class MLPClassifier(nn.Module): # inheriting from nn.Module!
         @param hidden_dim: size of the hidden layer
         @param num_labels: number of labels
         """
-        super(MLPClassifier, self).__init__()
+        super(CBOW_MLP, self).__init__()
         self.embed = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
         self.dropout = nn.Dropout(p=0.5)
         self.linear_1 = nn.Linear(2 * embedding_dim, hidden_dim) 
         self.linear_2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear_3 = nn.Linear(hidden_dim, num_labels)
         self.init_weights()
-
 
     def forward(self, prem, hypo):
         """
@@ -56,7 +55,6 @@ class MLPClassifier(nn.Module): # inheriting from nn.Module!
         out = F.relu(self.linear_2(out))
         out = self.dropout(self.linear_3(out))
         return F.log_softmax(out)
-
 
     def init_weights(self):
         initrange = 0.1
@@ -87,6 +85,10 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_st
 
 
 def evaluate(model, data_iter):
+    """
+    @param model: 
+    @param data_iter: data loader for the dataset to test against
+    """
     model.eval()
     correct = 0
     total = 0
@@ -114,7 +116,7 @@ def main():
     learning_rate = 0.004
     max_num_train_steps = 1000
     
-    model = MLPClassifier(vocab_size, embedding_dim, args.hidden_dim, args.num_labels)   
+    model = CBOW_MLP(vocab_size, embedding_dim, args.hidden_dim, args.num_labels)   
     # Loss and Optimizer
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
