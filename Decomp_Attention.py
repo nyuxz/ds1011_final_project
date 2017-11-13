@@ -8,16 +8,13 @@ import random
 import argparse
 
 
-
-
 # add parameters 
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
 parser.add_argument('--hidden_dim', default=50, type=int, help='hidden dim (default: 200)')
-#parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
+# parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
 parser.add_argument('--learning_rate', default=0.05, type=int, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
-
 
 
 class EmbedEncoder(nn.Module):
@@ -27,8 +24,7 @@ class EmbedEncoder(nn.Module):
         self.embedding_dim = embedding_dim 
         self.hidden_dim = hidden_dim
         self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=0)
-        self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)
-      
+        self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)  
         
     def forward(self, prem, hypo):
         prem_emb = self.embed(prem)
@@ -38,9 +34,9 @@ class EmbedEncoder(nn.Module):
         return prem_emb, hypo_emb
 
 
-
 # A Multi-Layer Perceptron (MLP)
-class DecomposableAttention(nn.Module): # inheriting from nn.Module!
+class DecomposableAttention(nn.Module): 
+    # inheriting from nn.Module!
     
     def __init__(self, hidden_dim, num_labels):
         super(DecomposableAttention, self).__init__()              
@@ -57,7 +53,6 @@ class DecomposableAttention(nn.Module): # inheriting from nn.Module!
         # final layer will not use dropout, so defining independently 
         self.linear_final = nn.Linear(hidden_dim, num_labels, bias=False)
     
-
     def mlp(self, input_dim, output_dim):
         '''
         function define a feed forward neural network with ReLu activations 
@@ -76,8 +71,7 @@ class DecomposableAttention(nn.Module): # inheriting from nn.Module!
         feed_forward.append(nn.Linear(output_dim, output_dim, bias=False))
         feed_forward.append(nn.ReLU()) 
         return nn.Sequential(*feed_forward)
-
-    
+   
     def forward(self, prem_emb, hypo_emb):
 
         '''Input layer'''
@@ -85,82 +79,64 @@ class DecomposableAttention(nn.Module): # inheriting from nn.Module!
         '''Attend'''
         f_prem = self.mlp_F(prem_emb)
         f_hypo = self.mlp_F(hypo_emb)
-
         e_ij = torch.bmm(f_prem, torch.transpose(f_hypo, 1, 2))
         beta_ij = F.softmax(e_ij)
         beta_i = torch.bmm(beta_ij, hypo_emb)
-
         e_ji = torch.transpose(e_ij, 1, 2)
         alpha_ji = F.softmax(e_ji)
         alpha_j = torch.bmm(alpha_ji, prem_emb)
-          
-        
+                  
         '''Compare'''
         concat_1 = torch.cat((prem_emb, beta_i), 2)       
-        concat_2 = torch.cat((hypo_emb, alpha_j), 2)
-        
+        concat_2 = torch.cat((hypo_emb, alpha_j), 2)       
         compare_1 = self.mlp_G(concat_1)
         compare_2 = self.mlp_G(concat_2)
-        
-        
+              
         '''Aggregate'''
         v_1 = torch.sum(compare_1, 1)
         v_2 = torch.sum(compare_2, 1)
-        v_concat = torch.cat((v_1, v_2), 1)
-        
+        v_concat = torch.cat((v_1, v_2), 1)    
         y_pred = self.mlp_H(v_concat)
-    
-    
+        
         '''Final layer'''
         out = F.log_softmax(self.linear_final(y_pred))
         
         return out
 
 
-def training_loop(model,input_encoder, loss, optimizer, input_optimizer,train_iter, dev_iter):
+def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
     step = 0
-    for i in range(num_train_steps):
-        
+    for i in range(num_train_steps):       
         model.train()
-        input_encoder.train()
-        
+        input_encoder.train()      
         for batch in train_iter:
             premise = batch.premise.transpose(0, 1)
             hypothesis = batch.hypothesis.transpose(0, 1)
-            labels = batch.label - 1
-            
+            labels = batch.label - 1           
             input_encoder.zero_grad()
             model.zero_grad()
-
             prem_emb, hypo_emb = input_encoder(premise, hypothesis)
             output = model(prem_emb, hypo_emb)
-
             lossy = loss(output, labels)
-            #print(lossy)
-            lossy.backward()
-            
+            lossy.backward()        
             input_optimizer.step()
             optimizer.step()
-
             if step % 10 == 0:
-                print("Step %i; Loss %f; Dev acc %f" %(step, lossy.data[0], evaluate(model, input_encoder, dev_iter)))
-
+                print("Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], evaluate(model, input_encoder, dev_iter)))
             step += 1
 
 
-def evaluate(model,input_encoder, data_iter):
+def evaluate(model, input_encoder, data_iter):
     input_encoder.eval()
     model.eval()
     correct = 0
     total = 0
-    for batch in data_iter:
-        premise = batch.premise.transpose(0,1)
-        hypothesis = batch.hypothesis.transpose(0,1)
+    for batch in data_iter: 
+        premise = batch.premise.transpose(0, 1)
+        hypothesis = batch.hypothesis.transpose(0, 1)
         labels = (batch.label - 1).data
-        
         prem_emb, hypo_emb = input_encoder(premise, hypothesis)
         output = model(prem_emb, hypo_emb)
-        
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum()
@@ -187,47 +163,44 @@ def main():
     global input_size, num_train_steps
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
-    num_train_steps = 100,000
+    num_train_steps = 100, 000
     args = parser.parse_args()
 
-
-    # define model
+    #define model
     #glove_home = './glove_6B/'
-	words_to_load = vocab_size
-
-	import numpy as np
-
-	# pre-trained word vectors
-	with open('glove.6B.300d.txt') as f:
-	    word_vecs = np.zeros((words_to_load, embedding_dim)) #dim: (50000, 50)
-	    words = {}
-	    idx2words = {}
-	    ordered_words = []
-	    for i, line in enumerate(f):
-	        if i >= words_to_load: 
-	            break
-	        s = line.split()
-	        word_vecs[i, :] = np.asarray(s[1:])
-	        words[s[0]] = i
-	        idx2words[i] = s[0]
-	        ordered_words.append(s[0])
-	word_vecs = torch.from_numpy(word_vecs)
-
-	input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim)
-	input_encoder.embedding.weight.data.copy_(word_vecs)
-	input_encoder.embedding.weight.requires_grad = False
+    words_to_load = vocab_size
+    
+    import numpy as np
+    
+    #pre-trained word vectors
+    with open('glove.6B.300d.txt') as f:
+        word_vecs = np.zeros((words_to_load, embedding_dim)) 
+        words = {}
+        idx2words = {}
+        ordered_words = []
+        for i, line in enumerate(f):
+            if i >= words_to_load: 
+                break
+            s = line.split()
+            word_vecs[i, :] = np.asarray(s[1:])
+            words[s[0]] = i
+            idx2words[i] = s[0]
+            ordered_words.append(s[0])
+    word_vecs = torch.from_numpy(word_vecs)
+    
+    input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim)
+    input_encoder.embedding.weight.data.copy_(word_vecs)
+    input_encoder.embedding.weight.requires_grad = False
 
     model = DecomposableAttention(args.hidden_dim, args.num_labels)
 
-
-    # Loss and Optimizer
+    #Loss and Optimizer
     loss = nn.CrossEntropyLoss()
     input_optimizer = torch.optim.Adam(input_encoder.parameters(), lr=args.learning_rate)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     
-    # Train the model
+    #Train the model
     training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
-
 
 
 if __name__ == '__main__':
