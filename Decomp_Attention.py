@@ -13,7 +13,7 @@ import argparse
 # add parameters 
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
-parser.add_argument('--hidden_dim', default=50, type=int, help='hidden dim (default: 50)')
+parser.add_argument('--hidden_dim', default=50, type=int, help='hidden dim (default: 200)')
 #parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
 parser.add_argument('--learning_rate', default=0.05, type=int, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
@@ -23,8 +23,7 @@ parser.add_argument('--embedding_dim', default=300, type=int, help='embedding di
 class EmbedEncoder(nn.Module):
     
     def __init__(self, input_size, embedding_dim, hidden_dim):
-        super(EmbedEncoder, self).__init__()
-        
+        super(EmbedEncoder, self).__init__()     
         self.embedding_dim = embedding_dim 
         self.hidden_dim = hidden_dim
         self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=0)
@@ -32,12 +31,10 @@ class EmbedEncoder(nn.Module):
       
         
     def forward(self, prem, hypo):
-    
         prem_emb = self.embed(prem)
         hypo_emb = self.embed(hypo)
         prem_emb = self.input_linear(prem_emb)
         hypo_emb = self.input_linear(hypo_emb)
-
         return prem_emb, hypo_emb
 
 
@@ -58,7 +55,7 @@ class DecomposableAttention(nn.Module): # inheriting from nn.Module!
         self.mlp_H = self.mlp(2 * hidden_dim, hidden_dim)
             
         # final layer will not use dropout, so defining independently 
-        self.linear_final = nn.Linear(hidden_dim, num_labels, bias = False)
+        self.linear_final = nn.Linear(hidden_dim, num_labels, bias=False)
     
 
     def mlp(self, input_dim, output_dim):
@@ -128,36 +125,38 @@ def training_loop(model,input_encoder, loss, optimizer, input_optimizer,train_it
         input_encoder.train()
         
         for batch in train_iter:
-            premise = batch.premise.transpose(0,1)
-            hypothesis = batch.hypothesis.transpose(0,1)
-            labels = batch.label-1
+            premise = batch.premise.transpose(0, 1)
+            hypothesis = batch.hypothesis.transpose(0, 1)
+            labels = batch.label - 1
             
-            model.zero_grad()
             input_encoder.zero_grad()
-            
+            model.zero_grad()
+
             prem_emb, hypo_emb = input_encoder(premise, hypothesis)
             output = model(prem_emb, hypo_emb)
+
             lossy = loss(output, labels)
             #print(lossy)
             lossy.backward()
-            optimizer.step()
+            
             input_optimizer.step()
+            optimizer.step()
 
             if step % 10 == 0:
-                print( "Step %i; Loss %f; Dev acc %f" 
-                %(step, lossy.data[0], evaluate(model, input_encoder, dev_iter)))
+                print("Step %i; Loss %f; Dev acc %f" %(step, lossy.data[0], evaluate(model, input_encoder, dev_iter)))
 
             step += 1
 
+
 def evaluate(model,input_encoder, data_iter):
-    model.eval()
     input_encoder.eval()
+    model.eval()
     correct = 0
     total = 0
     for batch in data_iter:
         premise = batch.premise.transpose(0,1)
         hypothesis = batch.hypothesis.transpose(0,1)
-        labels = (batch.label-1).data
+        labels = (batch.label - 1).data
         
         prem_emb, hypo_emb = input_encoder(premise, hypothesis)
         output = model(prem_emb, hypo_emb)
@@ -165,8 +164,9 @@ def evaluate(model,input_encoder, data_iter):
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum()
-    model.train()
     input_encoder.train()
+    model.train()
+    
     return correct / float(total)
 
 
@@ -178,28 +178,53 @@ def main():
 
     train, dev, test = datasets.SNLI.splits(inputs, answers)
 
-    inputs.build_vocab(train, dev, test)
+    inputs.build_vocab(train, vectors='glove.6B.300d')
     answers.build_vocab(train)
 
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size = 32, device=-1)
+    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=4, device=-1)
 
     # global params 
     global input_size, num_train_steps
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
-    num_train_steps = 1000
+    num_train_steps = 100,000
     args = parser.parse_args()
 
 
     # define model
+    #glove_home = './glove_6B/'
+	words_to_load = vocab_size
+
+	import numpy as np
+
+	# pre-trained word vectors
+	with open('glove.6B.300d.txt') as f:
+	    word_vecs = np.zeros((words_to_load, embedding_dim)) #dim: (50000, 50)
+	    words = {}
+	    idx2words = {}
+	    ordered_words = []
+	    for i, line in enumerate(f):
+	        if i >= words_to_load: 
+	            break
+	        s = line.split()
+	        word_vecs[i, :] = np.asarray(s[1:])
+	        words[s[0]] = i
+	        idx2words[i] = s[0]
+	        ordered_words.append(s[0])
+	word_vecs = torch.from_numpy(word_vecs)
+
+	input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim)
+	input_encoder.embedding.weight.data.copy_(word_vecs)
+	input_encoder.embedding.weight.requires_grad = False
+
     model = DecomposableAttention(args.hidden_dim, args.num_labels)
-    input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim)
+
 
     # Loss and Optimizer
-    loss = nn.CrossEntropyLoss()  
-    optimizer = torch.optim.Adam(model.parameters(), lr= args.learning_rate)
-    input_optimizer = torch.optim.Adam(input_encoder.parameters(), lr= args.learning_rate)
-
+    loss = nn.CrossEntropyLoss()
+    input_optimizer = torch.optim.Adam(input_encoder.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    
     # Train the model
     training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
 
