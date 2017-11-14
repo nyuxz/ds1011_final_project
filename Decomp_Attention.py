@@ -27,7 +27,7 @@ class EmbedEncoder(nn.Module):
 
         self.embedding_dim = embedding_dim 
         self.hidden_dim = hidden_dim
-        self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=0)
+        self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=1)
         self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)
         self.para_init = para_init   
 
@@ -180,9 +180,10 @@ def main():
 
     train, dev, test = datasets.SNLI.splits(inputs, answers)
 
+
     # get input embeddings
-    inputs.build_vocab(train, dev, test)
-    answers.build_vocab(train)
+    inputs.build_vocab(train, dev, test, vectors = 'glove.6B.300d')
+    #answers.build_vocab(train)
 
     train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=4, device=-1)
 
@@ -194,43 +195,24 @@ def main():
     args = parser.parse_args()
 
     #define model
-    #glove_home = './glove_6B/'
-    words_to_load = input_size
-    
-    
-    #pre-trained word vectors
-    with open('glove.6B.300d.txt') as f:
-        word_vecs = np.zeros((words_to_load, args.embedding_dim)) 
-        words = {}
-        idx2words = {}
-        ordered_words = []
-        for i, line in enumerate(f):
-            if i >= words_to_load: 
-                break
-            s = line.split()
-            word_vecs[i, :] = np.asarray(s[1:])
-            words[s[0]] = i
-            idx2words[i] = s[0]
-            ordered_words.append(s[0])
 
-    word_vecs = torch.from_numpy(word_vecs)
-    
-    input_encoder = EmbedEncoder(word_vecs.size(0), args.embedding_dim, args.hidden_dim, args.para_init)
+    word_vecs = inputs.vocab.vectors 
+    #word_vecs = torch.from_numpy(word_vecs)
+    input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim, args.para_init)
     input_encoder.embed.weight.data.copy_(word_vecs)
     input_encoder.embed.weight.requires_grad = False
 
+
     #input_encoder.cuda()
 
-
     model = DecomposableAttention(args.hidden_dim, args.num_labels, args.para_init)
-
 
     #Loss
     loss = nn.CrossEntropyLoss()
 
     # Optimizer
 
-    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
+    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters()) #embedding do not need grad
     para2 = model.parameters()
 
     input_optimizer = torch.optim.Adam(para1, lr=args.learning_rate)
