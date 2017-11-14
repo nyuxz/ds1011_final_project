@@ -36,7 +36,6 @@ class EmbedEncoder(nn.Module):
             if isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, self.para_init)
 
-        
     def forward(self, prem, hypo):
         prem_emb = self.embed(prem)
         hypo_emb = self.embed(hypo)
@@ -56,8 +55,7 @@ class DecomposableAttention(nn.Module):
         self.num_labels = num_labels
         self.dropout = nn.Dropout(p=0.2)
         self.para_init = para_init   
-
-        
+   
         # layer F, G, and H are feed forward nn with ReLu
         self.mlp_F = self.mlp(hidden_dim, hidden_dim)
         self.mlp_G = self.mlp(2 * hidden_dim, hidden_dim)
@@ -73,7 +71,6 @@ class DecomposableAttention(nn.Module):
                 m.weight.data.normal_(0, self.para_init)
                 #m.bias.data.normal_(0, self.para_init)
 
-    
     def mlp(self, input_dim, output_dim):
         '''
         function define a feed forward neural network with ReLu activations 
@@ -122,7 +119,6 @@ class DecomposableAttention(nn.Module):
         '''Final layer'''
         out = F.log_softmax(self.linear_final(y_pred))
 
-        
         return out
 
 
@@ -139,7 +135,7 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
             labels = batch.label - 1           
             input_encoder.zero_grad()
             model.zero_grad()
-            prem_emb, hypo_emb = input_encoder(premise, hypothesis)
+            prem_emb, hypo_emb = input_encoder(premise.cuda(), hypothesis.cuda())
             output = model(prem_emb, hypo_emb)
             lossy = loss(output, labels)
             lossy.backward()    
@@ -160,7 +156,7 @@ def evaluate(model, input_encoder, data_iter):
         premise = batch.premise.transpose(0, 1)
         hypothesis = batch.hypothesis.transpose(0, 1)
         labels = (batch.label - 1).data
-        prem_emb, hypo_emb = input_encoder(premise, hypothesis)
+        prem_emb, hypo_emb = input_encoder(premise.cuda(), hypothesis.cuda())
         output = model(prem_emb, hypo_emb)
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
@@ -180,12 +176,11 @@ def main():
 
     train, dev, test = datasets.SNLI.splits(inputs, answers)
 
-
     # get input embeddings
-    inputs.build_vocab(train, dev, test, vectors = 'glove.6B.300d')
-    #answers.build_vocab(train)
+    inputs.build_vocab(train, vectors='glove.6B.300d')
+    answers.build_vocab(train)
 
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=4, device=-1)
+    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=4, device=None)
 
     # global params 
     global input_size, num_train_steps
@@ -201,11 +196,10 @@ def main():
     input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim, args.para_init)
     input_encoder.embed.weight.data.copy_(word_vecs)
     input_encoder.embed.weight.requires_grad = False
-
-
-    #input_encoder.cuda()
+    input_encoder.cuda()
 
     model = DecomposableAttention(args.hidden_dim, args.num_labels, args.para_init)
+    model.cuda()
 
     #Loss
     loss = nn.CrossEntropyLoss()
