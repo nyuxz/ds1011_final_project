@@ -6,6 +6,8 @@ import torch.nn.functional as F
 import re
 import random
 import argparse
+import numpy as np
+
 
 
 # add parameters 
@@ -15,16 +17,25 @@ parser.add_argument('--hidden_dim', default=50, type=int, help='hidden dim (defa
 # parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
 parser.add_argument('--learning_rate', default=0.05, type=int, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
+parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
 
 
 class EmbedEncoder(nn.Module):
     
-    def __init__(self, input_size, embedding_dim, hidden_dim):
+    def __init__(self, input_size, embedding_dim, hidden_dim, para_init):
         super(EmbedEncoder, self).__init__()     
+
         self.embedding_dim = embedding_dim 
         self.hidden_dim = hidden_dim
         self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=0)
-        self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)  
+        self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)
+        self.para_init = para_init   
+
+        '''initialize parameters'''
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, self.para_init)
+
         
     def forward(self, prem, hypo):
         prem_emb = self.embed(prem)
@@ -38,12 +49,14 @@ class EmbedEncoder(nn.Module):
 class DecomposableAttention(nn.Module): 
     # inheriting from nn.Module!
     
-    def __init__(self, hidden_dim, num_labels):
+    def __init__(self, hidden_dim, num_labels, para_init):
         super(DecomposableAttention, self).__init__()              
    
         self.hidden_dim = hidden_dim
         self.num_labels = num_labels
-        self.dropout = nn.Dropout(p=0.2)      
+        self.dropout = nn.Dropout(p=0.2)
+        self.para_init = para_init   
+
         
         # layer F, G, and H are feed forward nn with ReLu
         self.mlp_F = self.mlp(hidden_dim, hidden_dim)
@@ -52,6 +65,14 @@ class DecomposableAttention(nn.Module):
             
         # final layer will not use dropout, so defining independently 
         self.linear_final = nn.Linear(hidden_dim, num_labels, bias=False)
+
+        '''initialize parameters'''
+        for m in self.modules():
+            # print m
+            if isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, self.para_init)
+                #m.bias.data.normal_(0, self.para_init)
+
     
     def mlp(self, input_dim, output_dim):
         '''
@@ -100,15 +121,18 @@ class DecomposableAttention(nn.Module):
         
         '''Final layer'''
         out = F.log_softmax(self.linear_final(y_pred))
+
         
         return out
 
 
 def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
     step = 0
-    for i in range(num_train_steps):       
-        model.train()
-        input_encoder.train()      
+    for i in range(num_train_steps): 
+
+        input_encoder.train()         
+        model.train()    
+
         for batch in train_iter:
             premise = batch.premise.transpose(0, 1)
             hypothesis = batch.hypothesis.transpose(0, 1)
@@ -118,7 +142,8 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
             prem_emb, hypo_emb = input_encoder(premise, hypothesis)
             output = model(prem_emb, hypo_emb)
             lossy = loss(output, labels)
-            lossy.backward()        
+            lossy.backward()    
+            #To-Do:grad 
             input_optimizer.step()
             optimizer.step()
             if step % 10 == 0:
@@ -140,6 +165,7 @@ def evaluate(model, input_encoder, data_iter):
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum()
+
     input_encoder.train()
     model.train()
     
@@ -154,7 +180,8 @@ def main():
 
     train, dev, test = datasets.SNLI.splits(inputs, answers)
 
-    inputs.build_vocab(train, vectors='glove.6B.300d')
+    # get input embeddings
+    inputs.build_vocab(train, dev, test)
     answers.build_vocab(train)
 
     train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=4, device=-1)
@@ -163,18 +190,17 @@ def main():
     global input_size, num_train_steps
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
-    num_train_steps = 100, 000
+    num_train_steps = 100000
     args = parser.parse_args()
 
     #define model
     #glove_home = './glove_6B/'
-    words_to_load = vocab_size
+    words_to_load = input_size
     
-    import numpy as np
     
     #pre-trained word vectors
     with open('glove.6B.300d.txt') as f:
-        word_vecs = np.zeros((words_to_load, embedding_dim)) 
+        word_vecs = np.zeros((words_to_load, args.embedding_dim)) 
         words = {}
         idx2words = {}
         ordered_words = []
@@ -186,18 +212,29 @@ def main():
             words[s[0]] = i
             idx2words[i] = s[0]
             ordered_words.append(s[0])
+
     word_vecs = torch.from_numpy(word_vecs)
     
-    input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim)
-    input_encoder.embedding.weight.data.copy_(word_vecs)
-    input_encoder.embedding.weight.requires_grad = False
+    input_encoder = EmbedEncoder(word_vecs.size(0), args.embedding_dim, args.hidden_dim, args.para_init)
+    input_encoder.embed.weight.data.copy_(word_vecs)
+    input_encoder.embed.weight.requires_grad = False
 
-    model = DecomposableAttention(args.hidden_dim, args.num_labels)
+    #input_encoder.cuda()
 
-    #Loss and Optimizer
+
+    model = DecomposableAttention(args.hidden_dim, args.num_labels, args.para_init)
+
+
+    #Loss
     loss = nn.CrossEntropyLoss()
-    input_optimizer = torch.optim.Adam(input_encoder.parameters(), lr=args.learning_rate)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    # Optimizer
+
+    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
+    para2 = model.parameters()
+
+    input_optimizer = torch.optim.Adam(para1, lr=args.learning_rate)
+    optimizer = torch.optim.Adam(para2, lr=args.learning_rate)
     
     #Train the model
     training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
