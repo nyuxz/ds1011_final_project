@@ -6,18 +6,20 @@ import torch
 import argparse
 import random
 import argparse
-
+import numpy as np
 
 parser = argparse.ArgumentParser(description='cbow+mlp')
-parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
-parser.add_argument('--hidden_dim', default=10, type=int, help='number of hidden dim (default: 10)')
+parser.add_argument('--hidden_dim', default=1000, type=int, help='number of hidden dim (default: 10)')
+parser.add_argument('--learning_rate', default=0.01, type=float, help='learning rate (default: 0.05)')
+parser.add_argument('--embedding_dim', default=1000, type=int, help='dimensions of embedding (default: 100)')
+
 
 inputs = datasets.snli.ParsedTextField(lower=True)
 labels = data.Field(sequential=False)
 
 train, dev, test = datasets.SNLI.splits(inputs, labels)
 
-inputs.build_vocab(train)
+inputs.build_vocab(train, dev, test)
 labels.build_vocab(train)
 
 train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=64, device=-1)
@@ -67,19 +69,23 @@ class CBOW_MLP(nn.Module):
 
 def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps):
     step = 0
+    max_acc= 0.0
     for i in range(max_num_train_steps):
         model.train()
         for batch in train_iter:
-            premise = batch.premise.transpose(0, 1)
-            hypothesis = batch.hypothesis.transpose(0, 1)
+            premise = batch.premise.transpose(0, 1).cuda()
+            hypothesis = batch.hypothesis.transpose(0, 1).cuda()
             labels = batch.label - 1
+            labels = labels.cuda()
             model.zero_grad()
             output = model(premise, hypothesis)
             lossy = loss(output, labels)
             lossy.backward()
             optimizer.step()
-            if step % 10 == 0:
-                print( "Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], evaluate(model, dev_iter)))
+            if step % 100 == 0:
+                dev_acc = evaluate(model, dev_iter)
+                max_acc = np.max([max_acc,dev_acc])
+                print( "Step %i; Loss %f; Dev acc %f; Max acc %f" % (step, lossy.data[0], dev_acc,max_acc))
             step += 1
 
 
@@ -92,9 +98,9 @@ def evaluate(model, data_iter):
     correct = 0
     total = 0
     for batch in data_iter:
-        premise = batch.premise.transpose(0, 1)
-        hypothesis = batch.hypothesis.transpose(0, 1)
-        labels = (batch.label - 1).data
+        premise = batch.premise.transpose(0, 1).cuda()
+        hypothesis = batch.hypothesis.transpose(0, 1).cuda()
+        labels = (batch.label - 1).data.cuda()
         output = model(premise, hypothesis)
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
@@ -104,24 +110,25 @@ def evaluate(model, data_iter):
 
 
 def main():
-    global args, max_num_train_steps, learning_rate, batch_size, embedding_dim
+    global args, max_num_train_steps, batch_size,num_labels,vocab_size
     args = parser.parse_args()
 
-    vocab_size = len(inputs.vocab)
-    #num_labels = 3
+    vocab_size = 100000
+    num_labels = 3
     #hidden_dim = 50
-    embedding_dim = 300
-    batch_size = 32
-    learning_rate = 0.004
-    max_num_train_steps = 1000
+    #embedding_dim = 300
+    batch_size = 64
+    max_num_train_steps = 10000000
     
-    model = CBOW_MLP(vocab_size, embedding_dim, args.hidden_dim, args.num_labels)   
+    model = CBOW_MLP(vocab_size, args.embedding_dim, args.hidden_dim, num_labels)
+    model.cuda()
     # Loss and Optimizer
     loss = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     # Train the model
     training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps)
 
 
 if __name__ == '__main__':
     main()
+
