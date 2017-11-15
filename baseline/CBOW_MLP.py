@@ -2,11 +2,11 @@ from torchtext import data, datasets
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 import torch
 import argparse
 import random
 import argparse
-import numpy as np
 
 parser = argparse.ArgumentParser(description='cbow+mlp')
 parser.add_argument('--hidden_dim', default=1000, type=int, help='number of hidden dim (default: 10)')
@@ -19,7 +19,7 @@ labels = data.Field(sequential=False)
 
 train, dev, test = datasets.SNLI.splits(inputs, labels)
 
-inputs.build_vocab(train, dev, test)
+inputs.build_vocab(train)
 labels.build_vocab(train)
 
 train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=64, device=-1)
@@ -36,7 +36,7 @@ class CBOW_MLP(nn.Module):
         @param num_labels: number of labels
         """
         super(CBOW_MLP, self).__init__()
-        self.embed = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        self.embed = nn.Embedding(vocab_size, embedding_dim, padding_idx=1)
         self.dropout = nn.Dropout(p=0.5)
         self.linear_1 = nn.Linear(2 * embedding_dim, hidden_dim) 
         self.linear_2 = nn.Linear(hidden_dim, hidden_dim)
@@ -69,7 +69,7 @@ class CBOW_MLP(nn.Module):
 
 def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps):
     step = 0
-    max_acc= 0.0
+    max_dev_acc = 0
     for i in range(max_num_train_steps):
         model.train()
         for batch in train_iter:
@@ -84,8 +84,10 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_st
             optimizer.step()
             if step % 100 == 0:
                 dev_acc = evaluate(model, dev_iter)
-                max_acc = np.max([max_acc,dev_acc])
-                print( "Step %i; Loss %f; Dev acc %f; Max acc %f" % (step, lossy.data[0], dev_acc,max_acc))
+                print("Step %i; Loss %f; Dev acc %f; Max acc %f" % (step, lossy.data[0], dev_acc))
+                if dev_acc > best_dev_acc:
+                    best_dev_acc = dev_acc
+                    torch.save(model.state_dict(), 'baseline.pt')
             step += 1
 
 
@@ -110,7 +112,7 @@ def evaluate(model, data_iter):
 
 
 def main():
-    global args, max_num_train_steps, batch_size,num_labels,vocab_size
+    global args, max_num_train_steps, batch_size, num_labels, vocab_size
     args = parser.parse_args()
 
     vocab_size = 100000
@@ -126,7 +128,8 @@ def main():
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     # Train the model
-    training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps)
+    max_dev_acc = training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps)
+    print(max_dev_acc)
 
 
 if __name__ == '__main__':
