@@ -9,7 +9,6 @@ import argparse
 import numpy as np
 
 
-
 # add parameters 
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
@@ -69,7 +68,7 @@ class DecomposableAttention(nn.Module):
             # print m
             if isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, self.para_init)
-                #m.bias.data.normal_(0, self.para_init)
+                # m.bias.data.normal_(0, self.para_init)
 
     def mlp(self, input_dim, output_dim):
         '''
@@ -124,11 +123,10 @@ class DecomposableAttention(nn.Module):
 
 def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
     step = 0
+    max_dev_acc = 0
     for i in range(num_train_steps): 
-
         input_encoder.train()         
         model.train()    
-
         for batch in train_iter:
             premise = batch.premise.transpose(0, 1)
             hypothesis = batch.hypothesis.transpose(0, 1)
@@ -142,8 +140,13 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
             #To-Do:grad 
             input_optimizer.step()
             optimizer.step()
-            if step % 10 == 0:
-                print("Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], evaluate(model, input_encoder, dev_iter)))
+            if step % 100 == 0:
+                dev_acc = evaluate(model, input_encoder, dev_iter)
+                print("Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], dev_acc))
+                if dev_acc > best_dev_acc:
+                    best_dev_acc = dev_acc
+                    torch.save(input_encoder.state_dict, 'input_encoder.pt')
+                    torch.save(model.state_dict(), 'decomp_atten.pt')
             step += 1
 
 
@@ -186,7 +189,7 @@ def main():
     global input_size, num_train_steps
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
-    num_train_steps = 100000
+    num_train_steps = 1000000
     args = parser.parse_args()
 
     #define model
@@ -206,11 +209,11 @@ def main():
 
     # Optimizer
 
-    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters()) #embedding do not need grad
+    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters()) 
     para2 = model.parameters()
 
-    input_optimizer = torch.optim.Adam(para1, lr=args.learning_rate)
-    optimizer = torch.optim.Adam(para2, lr=args.learning_rate)
+    input_optimizer = torch.optim.adagrad(para1, lr=args.learning_rate)
+    optimizer = torch.optim.adagrad(para2, lr=args.learning_rate)
     
     #Train the model
     training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
