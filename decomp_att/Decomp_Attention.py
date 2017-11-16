@@ -148,6 +148,7 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                     torch.save(input_encoder.state_dict, 'input_encoder.pt')
                     torch.save(model.state_dict(), 'decomp_atten.pt')
             step += 1
+    return max_dev_acc
 
 
 def evaluate(model, input_encoder, data_iter):
@@ -212,11 +213,12 @@ def main():
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters()) 
     para2 = model.parameters()
 
-    input_optimizer = torch.optim.adagrad(para1, lr=args.learning_rate)
-    optimizer = torch.optim.adagrad(para2, lr=args.learning_rate)
+    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate)
+    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate)
     
     #Train the model
-    training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
+    max_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
+    print(max_dev_acc)
 
 
 if __name__ == '__main__':
