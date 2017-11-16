@@ -7,6 +7,7 @@ import re
 import random
 import argparse
 import numpy as np
+import sys
 
 
 # add parameters 
@@ -143,6 +144,7 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
             if step % 100 == 0:
                 dev_acc = evaluate(model, input_encoder, dev_iter)
                 print("Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], dev_acc))
+                sys.stdout.flush()
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
                     torch.save(input_encoder.state_dict, 'input_encoder.pt')
