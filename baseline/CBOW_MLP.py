@@ -7,6 +7,7 @@ import torch
 import argparse
 import random
 import argparse
+import sys
 
 parser = argparse.ArgumentParser(description='cbow+mlp')
 parser.add_argument('--hidden_dim', default=1000, type=int, help='number of hidden dim (default: 10)')
@@ -69,7 +70,7 @@ class CBOW_MLP(nn.Module):
 
 def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps):
     step = 0
-    max_dev_acc = 0
+    best_dev_acc = 0
     for i in range(max_num_train_steps):
         model.train()
         for batch in train_iter:
@@ -85,10 +86,12 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_st
             if step % 100 == 0:
                 dev_acc = evaluate(model, dev_iter)
                 print("Step %i; Loss %f; Dev acc %f; Max acc %f" % (step, lossy.data[0], dev_acc))
+                sys.stdout.flush()
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
                     torch.save(model.state_dict(), 'baseline.pt')
             step += 1
+    return best_dev_acc
 
 
 def evaluate(model, data_iter):
@@ -128,8 +131,8 @@ def main():
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     # Train the model
-    max_dev_acc = training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps)
-    print(max_dev_acc)
+    best_dev_acc = training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_steps)
+    print(best_dev_acc)
 
 
 if __name__ == '__main__':
