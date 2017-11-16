@@ -123,7 +123,7 @@ class DecomposableAttention(nn.Module):
 
 def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
     step = 0
-    max_dev_acc = 0
+    best_dev_acc = 0
     for i in range(num_train_steps): 
         input_encoder.train()         
         model.train()    
@@ -148,7 +148,7 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                     torch.save(input_encoder.state_dict, 'input_encoder.pt')
                     torch.save(model.state_dict(), 'decomp_atten.pt')
             step += 1
-    return max_dev_acc
+    return best_dev_acc
 
 
 def evaluate(model, input_encoder, data_iter):
@@ -165,10 +165,8 @@ def evaluate(model, input_encoder, data_iter):
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum()
-
     input_encoder.train()
     model.train()
-    
     return correct / float(total)
 
 
@@ -217,8 +215,8 @@ def main():
     optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate)
     
     #Train the model
-    max_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
-    print(max_dev_acc)
+    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
+    print(best_dev_acc)
 
 
 if __name__ == '__main__':
