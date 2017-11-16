@@ -85,7 +85,7 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, max_num_train_st
             optimizer.step()
             if step % 100 == 0:
                 dev_acc = evaluate(model, dev_iter)
-                print("Step %i; Loss %f; Dev acc %f; Max acc %f" % (step, lossy.data[0], dev_acc))
+                print("Step %i; Loss %f; Dev acc %f" % (step, lossy.data[0], dev_acc))
                 sys.stdout.flush()
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
