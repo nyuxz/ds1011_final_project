@@ -9,7 +9,7 @@ import argparse
 import numpy as np
 import sys
 
-
+#new new
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
@@ -19,6 +19,9 @@ parser.add_argument('--learning_rate', default=0.05, type=float, help='learning 
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
 parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
 parser.add_argument('--device', help='use GPU', default= -1)
+parser.add_argument('--encoder', help='save encoder', default= 'encoder.pt')
+parser.add_argument('--model', help='save model', default= 'model.pt')
+
 
 use_cuda = torch.cuda.is_available()
 
@@ -153,7 +156,12 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                 prem_emb, hypo_emb = input_encoder(premise, hypothesis)
 
             output = model(prem_emb, hypo_emb)
-            lossy = loss(output, labels)
+	    
+            if use_cuda:
+                lossy = loss(output, labels.cuda())
+            else:
+                lossy = loss(output, labels)
+
             lossy.backward()
 
             # Add shinkage
@@ -185,8 +193,8 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                 dev_acc = evaluate(model, input_encoder, dev_iter)
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
-                    torch.save(input_encoder.state_dict, 'input_encoder_try_5.pt')
-                    torch.save(model.state_dict(), 'decomp_atten_try_5.pt')
+                    torch.save(input_encoder.state_dict, args.encoder)
+                    torch.save(model.state_dict(), args.model)
                 print("Step %i; Loss %f; Dev acc %f; Best dev acc %f;" % (step, lossy.data[0], dev_acc, best_dev_acc))
                 sys.stdout.flush()
             if step >= num_train_steps:
@@ -210,9 +218,15 @@ def evaluate(model, input_encoder, data_iter):
             prem_emb, hypo_emb = input_encoder(premise, hypothesis)
 
         output = model(prem_emb, hypo_emb)
+
+        if use_cuda:
+            output.cpu()
+
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
-        correct += (predicted == labels).sum()
+        #print(type(labels))
+        #print(type(predicted))
+        correct += (predicted == labels.cuda()).sum()
     input_encoder.train()
     model.train()
     return correct / float(total)
@@ -231,11 +245,11 @@ def main():
     answers.build_vocab(train)
 
     # global params
-    global input_size, num_train_steps
+    args = parser.parse_args()
+    global input_size, num_train_steps, args
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
     num_train_steps = 50000000
-    args = parser.parse_args()
 
     train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=args.batch_size, device=args.device)
 
