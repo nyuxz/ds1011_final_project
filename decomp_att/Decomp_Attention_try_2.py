@@ -1,7 +1,7 @@
 from torchtext import data, datasets
+from torch.autograd import Variable
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.nn.functional as F
 import re
 import random
@@ -14,10 +14,11 @@ import sys
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
 parser.add_argument('--hidden_dim', default=200, type=int, help='hidden dim (default: 200)')
-# parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
-parser.add_argument('--learning_rate', default=0.05, type=int, help='learning rate (default: 0.05)')
+parser.add_argument('--batch_size', default=64, type=int, help='batch size (default: 32)')
+parser.add_argument('--learning_rate', default=0.05, type=float, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
 parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
+parser.add_argument('--device', help='gpu or not', type=int, default=None)
 
 
 class EmbedEncoder(nn.Module):
@@ -75,11 +76,6 @@ class DecomposableAttention(nn.Module):
         '''
         function define a feed forward neural network with ReLu activations
         @input: dimension specifications
-
-        ToDo:
-            1. bias
-            2. args of dropout(maybe)
-            3. initialize para
         '''
         feed_forward = []
         feed_forward.append(self.dropout)
@@ -122,31 +118,69 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
+def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage):
     step = 0
     best_dev_acc = 0
-    while True:
+
+    while step <= num_train_steps:
         input_encoder.train()
         model.train()
+
         for batch in train_iter:
             premise = batch.premise.transpose(0, 1)
             hypothesis = batch.hypothesis.transpose(0, 1)
             labels = batch.label - 1
             input_encoder.zero_grad()
             model.zero_grad()
+
+            # initialize the optimizer
+            if step == 0:
+                for group in input_optimizer.param_groups:
+                    for p in group['params']:
+                        state = input_optimizer.state[p]
+                        state['sum'] += 0.1
+                for group in optimizer.param_groups:
+                    for p in group['params']:
+                        state = optimizer.state[p]
+                        state['sum'] += 0.1
+
             prem_emb, hypo_emb = input_encoder(premise.cuda(), hypothesis.cuda())
             output = model(prem_emb, hypo_emb)
             lossy = loss(output, labels)
             lossy.backward()
-            #To-Do:grad
+
+            # Add shinkage
+            if use_shrinkage is True:
+                grad_norm = 0.
+                for m in input_encoder.modules():
+                    if isinstance(m, nn.Linear):
+                        grad_norm += m.weight.grad.data.norm() ** 2
+                        if m.bias is not None:
+                            grad_norm += m.bias.grad.data.norm() ** 2
+                for m in model.modules():
+                    if isinstance(m, nn.Linear):
+                        grad_norm += m.weight.grad.data.norm() ** 2
+                        if m.bias is not None:
+                            grad_norm += m.bias.grad.data.norm() ** 2
+                grad_norm ** 0.5
+                shrinkage = 5 / (grad_norm + 1e-6)
+                if shrinkage < 1:
+                    for m in input_encoder.modules():
+                        if isinstance(m, nn.Linear):
+                            m.weight.grad.data = m.weight.grad.data * shrinkage
+                    for m in model.modules():
+                        if isinstance(m, nn.Linear):
+                            m.weight.grad.data = m.weight.grad.data * shrinkage
+                            m.bias.grad.data = m.bias.grad.data * shrinkage
+
             input_optimizer.step()
             optimizer.step()
             if step % 100 == 0:
                 dev_acc = evaluate(model, input_encoder, dev_iter)
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
-                    torch.save(input_encoder.state_dict, 'input_encoder_try_2.pt')
-                    torch.save(model.state_dict(), 'decomp_atten_try_2.pt')
+                    torch.save(input_encoder.state_dict, 'input_encoder_try_6.pt')
+                    torch.save(model.state_dict(), 'decomp_atten_try_6.pt')
                 print("Step %i; Loss %f; Dev acc %f; Best dev acc %f;" % (step, lossy.data[0], dev_acc, best_dev_acc))
                 sys.stdout.flush()
             if step >= num_train_steps:
@@ -185,8 +219,6 @@ def main():
     inputs.build_vocab(train, vectors='glove.6B.300d')
     answers.build_vocab(train)
 
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=8, device=None)
-
     # global params
     global input_size, num_train_steps
     vocab_size = len(inputs.vocab)
@@ -194,9 +226,9 @@ def main():
     num_train_steps = 50000000
     args = parser.parse_args()
 
-    #define model
+    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=args.batch_size, device=args.device)
 
-    #Normalize embedding vector (l2-norm = 1)
+    # Normalize embedding vector (l2-norm = 1)
     word_vecs = inputs.vocab.vectors.numpy()
     word_vecs_normalize = torch.from_numpy((word_vecs.T / (np.linalg.norm(word_vecs, ord=2, axis=1) + np.array([1e-6]) * 300)).T)
 
@@ -208,7 +240,7 @@ def main():
     model = DecomposableAttention(args.hidden_dim, args.num_labels, args.para_init)
     model.cuda()
 
-    #Loss
+    # Loss
     loss = nn.CrossEntropyLoss()
 
     # Optimizer
@@ -217,8 +249,8 @@ def main():
     input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate)
     optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate)
 
-    #Train the model
-    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
+    # Train the model
+    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False)
     print(best_dev_acc)
 
 
