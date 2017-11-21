@@ -56,8 +56,6 @@ class DecomposableAttention(nn.Module):
         self.num_labels = num_labels
         self.dropout = nn.Dropout(p=0.2)
         self.para_init = para_init
-        self.batchnorm_1 = nn.BatchNorm1d(self.hidden_dim)
-        self.batchnorm_2 = nn.BatchNorm1d(self.hidden_dim)
 
         # layer F, G, and H are feed forward nn with ReLu
         self.mlp_F = self.mlp(hidden_dim, hidden_dim)
@@ -109,8 +107,8 @@ class DecomposableAttention(nn.Module):
         compare_2 = self.mlp_G(concat_2)
 
         '''Aggregate'''
-        v_1 = self.batchnorm_1(torch.sum(compare_1, 1))
-        v_2 = self.batchnorm_2(torch.sum(compare_2, 1))
+        v_1 = torch.sum(compare_1, 1)
+        v_2 = torch.sum(compare_2, 1)
         v_concat = torch.cat((v_1, v_2), 1)
         y_pred = self.mlp_H(v_concat)
 
@@ -120,7 +118,7 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False):
+def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage):
     step = 0
     best_dev_acc = 0
 
@@ -181,8 +179,8 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                 dev_acc = evaluate(model, input_encoder, dev_iter)
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
-                    torch.save(input_encoder.state_dict, 'input_encoder_try_5.pt')
-                    torch.save(model.state_dict(), 'decomp_atten_try_5.pt')
+                    torch.save(input_encoder.state_dict, 'input_encoder_try.pt')
+                    torch.save(model.state_dict(), 'decomp_atten_try.pt')
                 print("Step %i; Loss %f; Dev acc %f; Best dev acc %f;" % (step, lossy.data[0], dev_acc, best_dev_acc))
                 sys.stdout.flush()
             if step >= num_train_steps:
