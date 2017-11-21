@@ -21,6 +21,7 @@ parser.add_argument('--para_init', help='parameter initialization gaussian', typ
 parser.add_argument('--device', help='use GPU', default= -1)
 parser.add_argument('--encoder', help='save encoder', default= 'encoder.pt')
 parser.add_argument('--model', help='save model', default= 'model.pt')
+args = parser.parse_args()
 
 
 use_cuda = torch.cuda.is_available()
@@ -226,7 +227,11 @@ def evaluate(model, input_encoder, data_iter):
         total += labels.size(0)
         #print(type(labels))
         #print(type(predicted))
-        correct += (predicted == labels.cuda()).sum()
+        if use_cuda:
+            correct += (predicted == labels.cuda()).sum()
+        else:
+            correct += (predicted == labels).sum()
+
     input_encoder.train()
     model.train()
     return correct / float(total)
@@ -245,7 +250,6 @@ def main():
     answers.build_vocab(train)
 
     # global params
-    args = parser.parse_args()
     global input_size, num_train_steps, args
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
