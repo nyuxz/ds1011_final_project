@@ -18,7 +18,7 @@ parser.add_argument('--batch_size', default=32, type=int, help='batch size (defa
 parser.add_argument('--learning_rate', default=0.05, type=float, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
 parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
-parser.add_argument('--device', help='use GPU', default= -1)
+parser.add_argument('--device', help='use GPU', default= None)
 parser.add_argument('--encoder', help='save encoder', default= 'encoder.pt')
 parser.add_argument('--model', help='save model', default= 'model.pt')
 args = parser.parse_args()
