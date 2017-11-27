@@ -60,7 +60,10 @@ class InitPrev(nn.Module):
         qry_enc = to_2D(qry_h, self.hidden_dim)
         qry_enc = to_3D(self.Wu(qry_enc), batch_size, self.hidden_dim)
 
-        Vr = Variable(torch.ones(qry_len, self.hidden_dim))
+        if use_cuda:
+            Vr = Variable(torch.ones(qry_len, self.hidden_dim)).cuda()
+        else:
+            Vr = Variable(torch.ones(qry_len, self.hidden_dim))
 
         Vr_enc = self.Wv(to_2D(Vr, self.hidden_dim)).unsqueeze(0)
         Vr_enc = expand(Vr_enc, qry_enc)
@@ -167,7 +170,12 @@ class Encoder(nn.Module):
     def init_hidden(self, batch_size):
         hidden = next(self.parameters()).data
         num_directions = 2
-        return Variable(hidden.new(self.num_layers * num_directions, batch_size, self.hidden_dim).zero_())
+
+        if use_cuda:
+            tmp = Variable(hidden.new(self.num_layers * num_directions, batch_size, self.hidden_dim).zero_()).cuda()
+        else:
+            tmp = Variable(hidden.new(self.num_layers * num_directions, batch_size, self.hidden_dim).zero_())
+        return tmp
 
 
 class Attention(nn.Module):
