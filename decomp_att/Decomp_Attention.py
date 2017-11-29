@@ -9,7 +9,7 @@ import argparse
 import numpy as np
 import sys
 
-#new new
+
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
@@ -18,11 +18,10 @@ parser.add_argument('--batch_size', default=32, type=int, help='batch size (defa
 parser.add_argument('--learning_rate', default=0.05, type=float, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
 parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
-parser.add_argument('--device', help='use GPU', default= None)
-parser.add_argument('--encoder', help='save encoder', default= 'encoder.pt')
-parser.add_argument('--model', help='save model', default= 'model.pt')
+parser.add_argument('--device', help='use GPU', default=None)
+parser.add_argument('--encoder', help='save encoder', default='encoder.pt')
+parser.add_argument('--model', help='save model', default='model.pt')
 args = parser.parse_args()
-
 
 use_cuda = torch.cuda.is_available()
 
@@ -61,8 +60,6 @@ class DecomposableAttention(nn.Module):
         self.num_labels = num_labels
         self.dropout = nn.Dropout(p=0.2)
         self.para_init = para_init
-        self.batchnorm_1 = nn.BatchNorm1d(self.hidden_dim)
-        self.batchnorm_2 = nn.BatchNorm1d(self.hidden_dim)
 
         # layer F, G, and H are feed forward nn with ReLu
         self.mlp_F = self.mlp(hidden_dim, hidden_dim)
@@ -114,8 +111,8 @@ class DecomposableAttention(nn.Module):
         compare_2 = self.mlp_G(concat_2)
 
         '''Aggregate'''
-        v_1 = self.batchnorm_1(torch.sum(compare_1, 1))
-        v_2 = self.batchnorm_2(torch.sum(compare_2, 1))
+        v_1 = torch.sum(compare_1, 1)
+        v_2 = torch.sum(compare_2, 1)
         v_concat = torch.cat((v_1, v_2), 1)
         y_pred = self.mlp_H(v_concat)
 
@@ -125,7 +122,7 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter):
+def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage):
     step = 0
     best_dev_acc = 0
 
@@ -157,7 +154,7 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
                 prem_emb, hypo_emb = input_encoder(premise, hypothesis)
 
             output = model(prem_emb, hypo_emb)
-	    
+
             if use_cuda:
                 lossy = loss(output, labels.cuda())
             else:
@@ -166,27 +163,28 @@ def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_
             lossy.backward()
 
             # Add shinkage
-            grad_norm = 0.
-            for m in input_encoder.modules():
-                if isinstance(m, nn.Linear):
-                    grad_norm += m.weight.grad.data.norm() ** 2
-                    if m.bias is not None:
-                        grad_norm += m.bias.grad.data.norm() ** 2
-            for m in model.modules():
-                if isinstance(m, nn.Linear):
-                    grad_norm += m.weight.grad.data.norm() ** 2
-                    if m.bias is not None:
-                        grad_norm += m.bias.grad.data.norm() ** 2
-            grad_norm ** 0.5
-            shrinkage = 5 / (grad_norm + 1e-6)
-            if shrinkage < 1:
+            if use_shrinkage is True:
+                grad_norm = 0.
                 for m in input_encoder.modules():
                     if isinstance(m, nn.Linear):
-                        m.weight.grad.data = m.weight.grad.data * shrinkage
+                        grad_norm += m.weight.grad.data.norm() ** 2
+                        if m.bias is not None:
+                            grad_norm += m.bias.grad.data.norm() ** 2
                 for m in model.modules():
                     if isinstance(m, nn.Linear):
-                        m.weight.grad.data = m.weight.grad.data * shrinkage
-                        m.bias.grad.data = m.bias.grad.data * shrinkage
+                        grad_norm += m.weight.grad.data.norm() ** 2
+                        if m.bias is not None:
+                            grad_norm += m.bias.grad.data.norm() ** 2
+                grad_norm ** 0.5
+                shrinkage = 5 / (grad_norm + 1e-6)
+                if shrinkage < 1:
+                    for m in input_encoder.modules():
+                        if isinstance(m, nn.Linear):
+                            m.weight.grad.data = m.weight.grad.data * shrinkage
+                    for m in model.modules():
+                        if isinstance(m, nn.Linear):
+                            m.weight.grad.data = m.weight.grad.data * shrinkage
+                            m.bias.grad.data = m.bias.grad.data * shrinkage
 
             input_optimizer.step()
             optimizer.step()
@@ -225,8 +223,6 @@ def evaluate(model, input_encoder, data_iter):
 
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
-        #print(type(labels))
-        #print(type(predicted))
         if use_cuda:
             correct += (predicted == labels.cuda()).sum()
         else:
@@ -257,7 +253,6 @@ def main():
 
     train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=args.batch_size, device=args.device)
 
-    # define model
     # Normalize embedding vector (l2-norm = 1)
     word_vecs = inputs.vocab.vectors.numpy()
     word_vecs_normalize = torch.from_numpy((word_vecs.T / (np.linalg.norm(word_vecs, ord=2, axis=1) + np.array([1e-6]) * 300)).T)
@@ -281,7 +276,7 @@ def main():
     optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate)
 
     # Train the model
-    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter)
+    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False)
     print(best_dev_acc)
 
 
