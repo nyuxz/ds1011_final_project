@@ -94,26 +94,38 @@ class DecomposableAttention(nn.Module):
     def forward(self, prem_emb, hypo_emb):
 
         '''Input layer'''
+        len_prem = prem_emb.size(1)
+        len_hypo = hypo_emb.size(1)
 
         '''Attend'''
-        f_prem = self.mlp_F(prem_emb)
-        f_hypo = self.mlp_F(hypo_emb)
+        f_prem = self.mlp_F(prem_emb.view(-1, self.hidden_dim))
+        f_hypo = self.mlp_F(hypo_emb.view(-1, self.hidden_dim))
+
+        f_prem = f_prem.view(-1, len_prem, self.hidden_dim)
+        f_hypo = f_hypo.view(-1, len_hypo, self.hidden_dim)
+
         e_ij = torch.bmm(f_prem, torch.transpose(f_hypo, 1, 2))
-        beta_ij = F.softmax(e_ij)
+        beta_ij = F.softmax(e_ij.view(-1, len_hypo)).view(-1, len_prem, len_hypo)
         beta_i = torch.bmm(beta_ij, hypo_emb)
-        e_ji = torch.transpose(e_ij, 1, 2)
-        alpha_ji = F.softmax(e_ji)
+
+        e_ji = torch.transpose(e_ij.contiguous(), 1, 2)
+        e_ji = e_ji.contiguous()
+        alpha_ji = F.softmax(e_ji.view(-1, len_prem)).view(-1, len_hypo, len_prem)
         alpha_j = torch.bmm(alpha_ji, prem_emb)
 
         '''Compare'''
         concat_1 = torch.cat((prem_emb, beta_i), 2)
         concat_2 = torch.cat((hypo_emb, alpha_j), 2)
-        compare_1 = self.mlp_G(concat_1)
-        compare_2 = self.mlp_G(concat_2)
+        compare_1 = self.mlp_G(concat_1.view(-1, 2 * self.hidden_dim))
+        compare_2 = self.mlp_G(concat_2.view(-1, 2 * self.hidden_dim))
+        compare_1 = compare_1.view(-1, len_prem, self.hidden_dim)
+        compare_2 = compare_2.view(-1, len_hypo, self.hidden_dim)
 
         '''Aggregate'''
         v_1 = torch.sum(compare_1, 1)
+        v_1 = torch.squeeze(v_1, 1)
         v_2 = torch.sum(compare_2, 1)
+        v_2 = torch.squeeze(v_2, 1)
         v_concat = torch.cat((v_1, v_2), 1)
         y_pred = self.mlp_H(v_concat)
 
