@@ -25,6 +25,7 @@ args = parser.parse_args()
 
 use_cuda = torch.cuda.is_available()
 
+
 class EmbedEncoder(nn.Module):
 
     def __init__(self, input_size, embedding_dim, hidden_dim, para_init):
@@ -272,8 +273,8 @@ def main():
     # Optimizer
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
     para2 = model.parameters()
-    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate)
-    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate)
+    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate, weight_decay=5e-5)
+    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate, weight_decay=5e-5)
 
     # Train the model
     best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False)
