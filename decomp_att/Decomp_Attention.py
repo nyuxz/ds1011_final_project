@@ -280,7 +280,7 @@ def main():
         model.cuda()
 
     # Loss
-    loss = nn.CrossEntropyLoss()
+    loss = nn.NLLLoss()
 
     # Optimizer
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
