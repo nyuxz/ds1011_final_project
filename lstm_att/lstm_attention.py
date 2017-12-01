@@ -17,13 +17,25 @@ parser.add_argument('--hidden_dim', default=50, type=int, help='hidden dim (defa
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
 parser.add_argument('--learning_rate', default=0.004, type=float, help='learning rate (default: 0.05)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
-parser.add_argument('--device', help='use GPU', default= None)
 parser.add_argument('--lstm_att', help='save encoder', default= 'lstm_att.pt')
+parser.add_argument('--pretrained_embed', default= 'glove.6B.300d', type = str, help='pretrained_embed')
+parser.add_argument('--weight_decay', default= 0.0, type = float, help='weight_decay')
+parser.add_argument('--num_layers', default=1, type=int, help='num_layers')
+parser.add_argument('--bidirectional', default=True, type=bool, help='bidirectional')
+parser.add_argument('--dropout', default= 0.0, type = float, help='dropout rate')
+
+
+
+
 args = parser.parse_args()
 
 
 use_cuda = torch.cuda.is_available()
 
+if(use_cuda):
+    device = None
+else:
+    device = -1
 
 def to_2D(tensor, dim):
     return tensor.contiguous().view(-1, dim)
@@ -125,10 +137,11 @@ class AttnLayer(nn.Module):
         return rt
 
 class Embed(nn.Module):
-    def __init__(self, W_emb, vocab_size, embed_dim, train_emb):
+    def __init__(self, W_emb, vocab_size, embed_dim, train_emb,dropout):
         super(Embed, self).__init__()
         self.embed_dim = embed_dim
         self.embed = nn.Embedding(vocab_size, self.embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
         if W_emb is not None:
             self.embed.weight = nn.Parameter(W_emb)
         if train_emb == False:
@@ -136,7 +149,9 @@ class Embed(nn.Module):
 
     def forward(self, doc, qry):
         doc = self.embed(doc)  # B x D x H
+        doc = self.dropout(doc)
         qry = self.embed(qry)  # B x Q x H
+        qry = self.dropout(qry)
         return doc, qry
 
 
@@ -147,8 +162,8 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
 
         # GRU can be changed to LSTM for experiments
-        self.d_gru = nn.GRU(embed_size, self.hidden_dim, self.num_layers, batch_first=True, bidirectional=True)
-        self.q_gru = nn.GRU(embed_size, self.hidden_dim, self.num_layers, batch_first=True, bidirectional=True)
+        self.d_gru = nn.GRU(embed_size, self.hidden_dim, self.num_layers, batch_first=True, bidirectional=args.bidirectional)
+        self.q_gru = nn.GRU(embed_size, self.hidden_dim, self.num_layers, batch_first=True, bidirectional=args.bidirectional)
 
         self.linear_d = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
         self.linear_q = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
@@ -169,7 +184,10 @@ class Encoder(nn.Module):
 
     def init_hidden(self, batch_size):
         hidden = next(self.parameters()).data
-        num_directions = 2
+        if(args.bidirectional == True):
+            num_directions = 2
+        else:
+            num_directions = 1
 
         if use_cuda:
             tmp = Variable(hidden.new(self.num_layers * num_directions, batch_size, self.hidden_dim).zero_()).cuda()
@@ -221,13 +239,14 @@ class OutputLayer(nn.Module):
 
 
 class Entailment(nn.Module):
-    def __init__(self, vocab_size, embed_dim, hidden_dim, W_emb=None, p=0.3, num_layers=1, train_emb=True):
+    def __init__(self, vocab_size, embed_dim, hidden_dim, W_emb=None, dropout=0.3, num_layers=1, train_emb=True):
         super(Entailment, self).__init__()
 
-        self.embed = Embed(W_emb, vocab_size, embed_dim, train_emb)
+        self.embed = Embed(W_emb, vocab_size, embed_dim, train_emb,dropout)
         self.encoder = Encoder(embed_dim, hidden_dim, num_layers)
         self.attention = Attention(hidden_dim)
         self.out = OutputLayer(hidden_dim)
+        
 
     def forward(self, doc, qry, dm, qm):
         batch_size = doc.size(0)
@@ -243,10 +262,10 @@ class Entailment(nn.Module):
         return output
 
 
-def training_loop(model, loss, optimizer, train_iter, dev_iter, embed_dim, hidden_dim):
+def training_loop(model, loss, optimizer, train_iter, dev_iter, embed_dim, hidden_dim,lr):
     step = 0
     best_dev_acc = 0
-
+    anneal_counter = 0
     while step <= num_train_steps:
 
         model.train()
@@ -272,12 +291,21 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, embed_dim, hidde
             lossy.backward()
             optimizer.step()
 
+
             if step % 100 == 0:
                 dev_acc = evaluate(model, dev_iter, embed_dim, hidden_dim)
                 if dev_acc > best_dev_acc:
                     best_dev_acc = dev_acc
                     torch.save(model.state_dict(), args.lstm_att)
-                print("Step %i; Loss %f; Dev acc %f; Best dev acc %f;" % (step, lossy.data[0], dev_acc, best_dev_acc))
+                    anneal_counter = 0
+                if dev_acc <= best_dev_acc:
+                        anneal_counter += 1
+                        if anneal_counter == 100:
+                            print('Annealing learning rate')
+                            lr /= 2
+                            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+                            anneal_counter = 0
+                print("Step %i; Loss %f; Dev acc %f; Best dev acc %f; learning rate %f" % (step, lossy.data[0], dev_acc, best_dev_acc,lr))
                 sys.stdout.flush()
             if step >= num_train_steps:
                 return best_dev_acc
@@ -319,29 +347,29 @@ def main():
     inputs = datasets.snli.ParsedTextField(lower=True)
     answers = data.Field(sequential=False)
     train, dev, test = datasets.SNLI.splits(inputs, answers)
-    inputs.build_vocab(train, vectors='glove.6B.300d')
+    inputs.build_vocab(train, vectors=args.pretrained_embed)
     answers.build_vocab(train)
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size= args.batch_size, device=args.device)
+    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size= args.batch_size, device=device)
 
 
     global num_train_steps
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
-    num_train_steps = 1000
+    num_train_steps = 1000000000
 
     word_vecs = inputs.vocab.vectors
-    model = Entailment(vocab_size=vocab_size, embed_dim= args.embedding_dim, hidden_dim = args.hidden_dim, W_emb=word_vecs, p=0.3,
-                       num_layers=1, train_emb=False)
+    model = Entailment(vocab_size=vocab_size, embed_dim= args.embedding_dim, hidden_dim = args.hidden_dim, W_emb=word_vecs, dropout=args.dropout,
+                       num_layers=args.num_layers, train_emb=False)
 
     if use_cuda:
         model.cuda()
 
     # Loss and Optimizer
     loss = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate,weight_decay = args.weight_decay)
 
     # Train the model
-    training_loop(model, loss, optimizer, train_iter, dev_iter, args.embedding_dim, args.hidden_dim)
+    training_loop(model, loss, optimizer, train_iter, dev_iter, args.embedding_dim, args.hidden_dim,args.learning_rate)
 
 if __name__ == '__main__':
     main()
