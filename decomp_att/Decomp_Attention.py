@@ -43,14 +43,21 @@ class EmbedEncoder(nn.Module):
                 m.weight.data.normal_(0, self.para_init)
 
     def forward(self, prem, hypo):
+        batch_size = prem.size(0)
+
         prem_emb = self.embed(prem)
         hypo_emb = self.embed(hypo)
-        prem_emb = self.input_linear(prem_emb)
-        hypo_emb = self.input_linear(hypo_emb)
+
+        prem_emb = prem_emb.view(-1, self.embedding_dim)
+        hypo_emb = hypo_emb.view(-1, self.embedding_dim)
+
+        prem_emb = self.input_linear(prem_emb).view(batch_size, -1, self.hidden_dim)
+        hypo_emb = self.input_linear(hypo_emb).view(batch_size, -1, self.hidden_dim)
+
         return prem_emb, hypo_emb
 
 
-# A Multi-Layer Perceptron (MLP)
+# Decomposable Attention
 class DecomposableAttention(nn.Module):
     # inheriting from nn.Module!
 
