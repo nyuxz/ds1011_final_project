@@ -262,7 +262,7 @@ def main():
     train, dev, test = datasets.SNLI.splits(inputs, answers)
 
     # get input embeddings
-    inputs.build_vocab(train, vectors='glove.6B.300d')
+    inputs.build_vocab(train, vectors='glove.840B.300d')
     answers.build_vocab(train)
 
     # global params
@@ -292,8 +292,8 @@ def main():
     # Optimizer
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
     para2 = model.parameters()
-    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate, weight_decay=5e-5)
-    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate, weight_decay=5e-5)
+    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate, weight_decay=0)
+    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate, weight_decay=0)
 
     # Train the model
     best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False)
