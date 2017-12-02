@@ -256,7 +256,7 @@ def evaluate(model, input_encoder, data_iter):
 def main():
 
     # get data
-    inputs = datasets.snli.ParsedTextField(lower=True)
+    inputs = datasets.snli.ParsedTextField(lower=False)
     answers = data.Field(sequential=False)
 
     train, dev, test = datasets.SNLI.splits(inputs, answers)
