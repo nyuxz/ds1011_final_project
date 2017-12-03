@@ -3,7 +3,7 @@ import random
 import json
 
 
-def process_snli(file_path, word_to_index):
+def process_snli(file_path, word_to_index, to_lower):
     label_dict = {'entailment': 0, 'contradiction': 1, 'neutral': 2}
     data = []
     with open(file_path, 'r') as f:
@@ -12,11 +12,15 @@ def process_snli(file_path, word_to_index):
             line = json.loads(line)
             if line['gold_label'] != '-':
                 example['label'] = label_dict[line['gold_label']]
-                tmp1 = line['sentence1_binary_parse'].replace('(', '').replace(')', '').split()
+                if to_lower is True:
+                    tmp1 = line['sentence1_binary_parse'].replace('(', '').replace(')', '').lower().split()
+                    tmp2 = line['sentence2_binary_parse'].replace('(', '').replace(')', '').split()
+                else:
+                    tmp1 = line['sentence1_binary_parse'].replace('(', '').replace(')', '').lower().split()
+                    tmp2 = line['sentence2_binary_parse'].replace('(', '').replace(')', '').split()
                 tmp1.insert(0, '<NULL>')
-                example['premise'] = ' '.join(tmp1)
-                tmp2 = line['sentence2_binary_parse'].replace('(', '').replace(')', '').split()
-                tmp2.insert(0, '<NULL>')  
+                tmp2.insert(0, '<NULL>') 
+                example['premise'] = ' '.join(tmp1) 
                 example['hypothesis'] = ' '.join(tmp2)
                 example['premise_to_words'] = [word for word in example['premise'].split(' ')]
                 example['hypothesis_to_words'] = [word for word in example['hypothesis'].split(' ')]
@@ -77,8 +81,3 @@ def batch_iter(dataset, batch_size, shuffle=True):
         for item in hypothesis:
             item.extend([100] * (max_length - len(item)))
         yield [label, premise, hypothesis]
-
-
-if __name__ == '__main__':
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.840B.300d.txt')
-    data = process_snli('../data/snli_1.0_dev.jsonl', word_to_index)

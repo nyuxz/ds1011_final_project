@@ -133,12 +133,12 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path):
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('/scratch/lj1035/glove.840B.300d.txt')
+def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path, to_lower):
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
 
-    training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index)
+    training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index, to_lower)
     train_iter = batch_iter(dataset=training_set, batch_size=batch_size, shuffle=True)
-    dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index)
+    dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower)
     dev_iter = batch_iter(dataset=dev_set, batch_size=batch_size, shuffle=True)
 
     num_batch = len(dev_set) // batch_size
@@ -277,4 +277,4 @@ def evaluate(model, input_encoder, data_iter, num_batch, use_cuda):
 
 
 if __name__ == '__main__':
-    train(batch_size=args.batch_size, use_shrinkage=False, num_train_steps=50000000, encoder_path=args.encoder_path, model_path=args.model_path)
+    train(batch_size=args.batch_size, use_shrinkage=False, num_train_steps=50000000, encoder_path=args.encoder_path, model_path=args.model_path, to_lower=True)
