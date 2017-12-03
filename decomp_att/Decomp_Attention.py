@@ -1,5 +1,6 @@
 from torchtext import data, datasets
 from torch.autograd import Variable
+from data_loader import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,18 +13,10 @@ import sys
 
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
-parser.add_argument('--num_labels', default=3, type=int, help='number of labels (default: 3)')
-parser.add_argument('--hidden_dim', default=200, type=int, help='hidden dim (default: 200)')
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
-parser.add_argument('--learning_rate', default=0.05, type=float, help='learning rate (default: 0.05)')
-parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
-parser.add_argument('--para_init', help='parameter initialization gaussian', type=float, default=0.01)
-parser.add_argument('--device', help='use GPU', default=None)
-parser.add_argument('--encoder', help='save encoder', default='encoder.pt')
-parser.add_argument('--model', help='save model', default='model.pt')
+parser.add_argument('--encoder_path', default='encoder.pt', help='save encoder')
+parser.add_argument('--model_path', default='model.pt', help='save model')
 args = parser.parse_args()
-
-use_cuda = torch.cuda.is_available()
 
 
 class EmbedEncoder(nn.Module):
@@ -33,7 +26,7 @@ class EmbedEncoder(nn.Module):
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=1)
+        self.embed = nn.Embedding(input_size, embedding_dim, padding_idx=100)
         self.input_linear = nn.Linear(embedding_dim, hidden_dim, bias=False)
         self.para_init = para_init
 
@@ -79,15 +72,13 @@ class DecomposableAttention(nn.Module):
 
         '''initialize parameters'''
         for m in self.modules():
-            # print m
             if isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, self.para_init)
                 m.bias.data.normal_(0, self.para_init)
 
     def mlp(self, input_dim, output_dim):
         '''
-        function define a feed forward neural network with ReLu activations
-        @input: dimension specifications
+        Define a feed forward neural network with ReLu activations
         '''
         feed_forward = []
         feed_forward.append(self.dropout)
@@ -142,163 +133,148 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage):
-    step = 0
+def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path):
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.840B.300d.txt')
+
+    training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index)
+    train_iter = batch_iter(dataset=training_set, batch_size=batch_size, shuffle=True)
+    dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index)
+    dev_iter = batch_iter(dataset=dev_set, batch_size=batch_size, shuffle=True)
+
+    num_batch = len(dev_set) // batch_size
+
+    use_cuda = torch.cuda.is_available()
+
+    # Normalize embedding vector (l2-norm = 1)
+    word_embeddings[100, :] = np.ones(300)
+    word_embeddings = (word_embeddings.T / np.linalg.norm(word_embeddings, ord=2, axis=1)).T
+    word_embeddings[100, :] = np.zeros(300)
+
+    # Encoder and Model
+    input_encoder = EmbedEncoder(input_size=word_embeddings.shape[0], embedding_dim=300, hidden_dim=200, para_init=0.01)
+    input_encoder.embed.weight.data.copy_(torch.from_numpy(word_embeddings))
+    input_encoder.embed.weight.requires_grad = False
+    model = DecomposableAttention(hidden_dim=200, num_labels=3, para_init=0.01)
+
+    if use_cuda:
+        input_encoder.cuda()
+        model.cuda()
+
+    # Optimizer
+    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
+    para2 = model.parameters()
+    input_optimizer = torch.optim.Adagrad(para1, lr=0.05, weight_decay=0)
+    optimizer = torch.optim.Adagrad(para2, lr=0.05, weight_decay=0)
+
+    # Initialize the optimizer
+    for group in input_optimizer.param_groups:
+        for p in group['params']:
+            state = input_optimizer.state[p]
+            state['sum'] += 0.1
+    for group in optimizer.param_groups:
+        for p in group['params']:
+            state = optimizer.state[p]
+            state['sum'] += 0.1
+
+    # Loss
+    loss = nn.NLLLoss()
+
     best_dev_acc = 0
 
-    while step <= num_train_steps:
+    for step, (label, premise, hypothesis) in enumerate(train_iter):
+
         input_encoder.train()
         model.train()
 
-        for batch in train_iter:
-            premise = batch.premise.transpose(0, 1)
-            hypothesis = batch.hypothesis.transpose(0, 1)
-            labels = batch.label - 1
-            input_encoder.zero_grad()
-            model.zero_grad()
+        if use_cuda:
+            premise_var = Variable(torch.LongTensor(premise).cuda())
+            hypothesis_var = Variable(torch.LongTensor(hypothesis).cuda())
+            label_var = Variable(torch.LongTensor(label).cuda())
+        else:
+            premise_var = Variable(torch.LongTensor(premise))
+            hypothesis_var = Variable(torch.LongTensor(hypothesis))
+            label_var = Variable(torch.LongTensor(label))
+        
+        input_encoder.zero_grad()
+        model.zero_grad()
 
-            # initialize the optimizer
-            if step == 0:
-                for group in input_optimizer.param_groups:
-                    for p in group['params']:
-                        state = input_optimizer.state[p]
-                        state['sum'] += 0.1
-                for group in optimizer.param_groups:
-                    for p in group['params']:
-                        state = optimizer.state[p]
-                        state['sum'] += 0.1
+        prem_emb, hypo_emb = input_encoder(premise_var, hypothesis_var)
+        output = model(prem_emb, hypo_emb)
 
-            if use_cuda:
-                prem_emb, hypo_emb = input_encoder(premise.cuda(), hypothesis.cuda())
-            else:
-                prem_emb, hypo_emb = input_encoder(premise, hypothesis)
+        lossy = loss(output, label_var)
+        lossy.backward()
 
-            output = model(prem_emb, hypo_emb)
-
-            if use_cuda:
-                lossy = loss(output, labels.cuda())
-            else:
-                lossy = loss(output, labels)
-
-            lossy.backward()
-
-            # Add shinkage
-            if use_shrinkage is True:
-                grad_norm = 0.
+        # Shrinkage
+        if use_shrinkage is True:
+            grad_norm = 0.
+            for m in input_encoder.modules():
+                if isinstance(m, nn.Linear):
+                    grad_norm += m.weight.grad.data.norm() ** 2
+                    if m.bias is not None:
+                        grad_norm += m.bias.grad.data.norm() ** 2
+            for m in model.modules():
+                if isinstance(m, nn.Linear):
+                    grad_norm += m.weight.grad.data.norm() ** 2
+                    if m.bias is not None:
+                        grad_norm += m.bias.grad.data.norm() ** 2
+            grad_norm ** 0.5
+            shrinkage = 5 / (grad_norm + 1e-6)
+            if shrinkage < 1:
                 for m in input_encoder.modules():
                     if isinstance(m, nn.Linear):
-                        grad_norm += m.weight.grad.data.norm() ** 2
-                        if m.bias is not None:
-                            grad_norm += m.bias.grad.data.norm() ** 2
+                        m.weight.grad.data = m.weight.grad.data * shrinkage
                 for m in model.modules():
                     if isinstance(m, nn.Linear):
-                        grad_norm += m.weight.grad.data.norm() ** 2
-                        if m.bias is not None:
-                            grad_norm += m.bias.grad.data.norm() ** 2
-                grad_norm ** 0.5
-                shrinkage = 5 / (grad_norm + 1e-6)
-                if shrinkage < 1:
-                    for m in input_encoder.modules():
-                        if isinstance(m, nn.Linear):
-                            m.weight.grad.data = m.weight.grad.data * shrinkage
-                    for m in model.modules():
-                        if isinstance(m, nn.Linear):
-                            m.weight.grad.data = m.weight.grad.data * shrinkage
-                            m.bias.grad.data = m.bias.grad.data * shrinkage
+                        m.weight.grad.data = m.weight.grad.data * shrinkage
+                        m.bias.grad.data = m.bias.grad.data * shrinkage
 
-            input_optimizer.step()
-            optimizer.step()
-            if step % 100 == 0:
-                dev_acc = evaluate(model, input_encoder, dev_iter)
-                if dev_acc > best_dev_acc:
-                    best_dev_acc = dev_acc
-                    torch.save(input_encoder.state_dict, args.encoder)
-                    torch.save(model.state_dict(), args.model)
-                print("Step %i; Loss %f; Dev acc %f; Best dev acc %f;" % (step, lossy.data[0], dev_acc, best_dev_acc))
-                sys.stdout.flush()
-            if step >= num_train_steps:
-                return best_dev_acc
-            step += 1
+        input_optimizer.step()
+        optimizer.step()
+        
+        if step % 100 == 0:
+            dev_acc = evaluate(model, input_encoder, dev_iter, num_batch, use_cuda)
+            if dev_acc > best_dev_acc:
+                best_dev_acc = dev_acc
+                torch.save(input_encoder.state_dict(), encoder_path)
+                torch.save(model.state_dict(), model_path)
+            print('Step %i; Loss %f; Dev acc %f; Best dev acc %f;' % (step, lossy.data[0], dev_acc, best_dev_acc))
+            sys.stdout.flush()
+        if step >= num_train_steps:
+            print('Step %i; Loss %f; Dev acc %f; Best dev acc %f;' % (step, lossy.data[0], dev_acc, best_dev_acc))
 
 
-def evaluate(model, input_encoder, data_iter):
+def evaluate(model, input_encoder, data_iter, num_batch, use_cuda):
     input_encoder.eval()
     model.eval()
     correct = 0
     total = 0
-    for batch in data_iter:
-        premise = batch.premise.transpose(0, 1)
-        hypothesis = batch.hypothesis.transpose(0, 1)
-        labels = (batch.label - 1).data
+
+    for _ in range(num_batch):
+        label, premise, hypothesis = next(data_iter)
 
         if use_cuda:
-            prem_emb, hypo_emb = input_encoder(premise.cuda(), hypothesis.cuda())
+            premise_var = Variable(torch.LongTensor(premise).cuda())
+            hypothesis_var = Variable(torch.LongTensor(hypothesis).cuda())
+            label_var = Variable(torch.LongTensor(label).cuda())
         else:
-            prem_emb, hypo_emb = input_encoder(premise, hypothesis)
+            premise_var = Variable(torch.LongTensor(premise))
+            hypothesis_var = Variable(torch.LongTensor(hypothesis))
+            label_var = Variable(torch.LongTensor(label))
 
+        prem_emb, hypo_emb = input_encoder(premise_var, hypothesis_var)
         output = model(prem_emb, hypo_emb)
 
         if use_cuda:
             output.cpu()
 
         _, predicted = torch.max(output.data, 1)
-        total += labels.size(0)
-        if use_cuda:
-            correct += (predicted == labels.cuda()).sum()
-        else:
-            correct += (predicted == labels).sum()
+        total += len(label)
+        correct += (predicted == label_var.data).sum()
 
     input_encoder.train()
     model.train()
     return correct / float(total)
 
 
-def main():
-
-    # get data
-    inputs = datasets.snli.ParsedTextField(lower=False)
-    answers = data.Field(sequential=False)
-
-    train, dev, test = datasets.SNLI.splits(inputs, answers)
-
-    # get input embeddings
-    inputs.build_vocab(train, vectors='glove.840B.300d')
-    answers.build_vocab(train)
-
-    # global params
-    global input_size, num_train_steps, args
-    vocab_size = len(inputs.vocab)
-    input_size = vocab_size
-    num_train_steps = 50000000
-
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=args.batch_size, device=args.device)
-
-    # Normalize embedding vector (l2-norm = 1)
-    word_vecs = inputs.vocab.vectors.numpy()
-    word_vecs_normalize = torch.from_numpy((word_vecs.T / (np.linalg.norm(word_vecs, ord=2, axis=1) + np.array([1e-6]) * 300)).T)
-
-    input_encoder = EmbedEncoder(input_size, args.embedding_dim, args.hidden_dim, args.para_init)
-    input_encoder.embed.weight.data.copy_(word_vecs_normalize)
-    input_encoder.embed.weight.requires_grad = False
-    model = DecomposableAttention(args.hidden_dim, args.num_labels, args.para_init)
-
-    if use_cuda:
-        input_encoder.cuda()
-        model.cuda()
-
-    # Loss
-    loss = nn.NLLLoss()
-
-    # Optimizer
-    para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
-    para2 = model.parameters()
-    input_optimizer = torch.optim.Adagrad(para1, lr=args.learning_rate, weight_decay=0)
-    optimizer = torch.optim.Adagrad(para2, lr=args.learning_rate, weight_decay=0)
-
-    # Train the model
-    best_dev_acc = training_loop(model, input_encoder, loss, optimizer, input_optimizer, train_iter, dev_iter, use_shrinkage=False)
-    print(best_dev_acc)
-
-
 if __name__ == '__main__':
-    main()
+    train(batch_size=args.batch_size, use_shrinkage=False, num_train_steps=50000000, encoder_path=args.encoder_path, model_path=args.model_path)
