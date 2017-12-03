@@ -134,7 +134,7 @@ class DecomposableAttention(nn.Module):
 
 
 def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path):
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.840B.300d.txt')
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('/scratch/lj1035/glove.840B.300d.txt')
 
     training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index)
     train_iter = batch_iter(dataset=training_set, batch_size=batch_size, shuffle=True)
