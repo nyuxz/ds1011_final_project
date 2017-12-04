@@ -75,11 +75,12 @@ def batch_iter(dataset, batch_size, shuffle=True):
             label.append(k['label'])
             premise.append(k['premise_to_tokens'])
             hypothesis.append(k['hypothesis_to_tokens'])
-        max_length = max([len(item) for item in premise] + [len(item) for item in hypothesis])
+        max_length_prem = max([len(item) for item in premise])
+        max_length_hypo = max([len(item) for item in hypothesis])
         for item in premise:
-            item.extend([100] * (max_length - len(item)))
+            item.extend([100] * (max_length_prem - len(item)))
         for item in hypothesis:
-            item.extend([100] * (max_length - len(item)))
+            item.extend([100] * (max_length_hypo - len(item)))
         yield [label, premise, hypothesis] 
 
 
