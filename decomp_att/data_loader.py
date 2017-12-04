@@ -80,12 +80,4 @@ def batch_iter(dataset, batch_size, shuffle=True):
             item.extend([100] * (max_length - len(item)))
         for item in hypothesis:
             item.extend([100] * (max_length - len(item)))
-        yield [label, premise, hypothesis]
-
-
-if __name__ == '__main__':
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')    
-    data = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower=True)
-    print(data[1])
-    dev_iter = batch_iter(dataset=data, batch_size=2, shuffle=True)
-    print(next(dev_iter)) 
+        yield [label, premise, hypothesis] 
