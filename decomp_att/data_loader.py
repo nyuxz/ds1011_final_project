@@ -25,7 +25,7 @@ def process_snli(file_path, word_to_index, to_lower):
                 example['premise_to_words'] = [word for word in example['premise'].split(' ')]
                 example['hypothesis_to_words'] = [word for word in example['hypothesis'].split(' ')]
                 example['premise_to_tokens'] = [word_to_index[word] if word in word_to_index.keys() else (hash(word) % 100) for word in example['premise_to_words']]
-                example['hypothesis_to_tokens'] = [word_to_index[word] if word in word_to_index.keys() else (hash(word) % 100) for word in example['premise_to_words']]
+                example['hypothesis_to_tokens'] = [word_to_index[word] if word in word_to_index.keys() else (hash(word) % 100) for word in example['hypothesis_to_words']]
                 data.append(example)
     return data
 
@@ -81,3 +81,12 @@ def batch_iter(dataset, batch_size, shuffle=True):
         for item in hypothesis:
             item.extend([100] * (max_length - len(item)))
         yield [label, premise, hypothesis] 
+
+
+if __name__ == '__main__':
+    # Test
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
+    dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower=True)
+    dev_iter = batch_iter(dataset=dev_set, batch_size=4, shuffle=True)
+    # print(next(dev_iter))
+
