@@ -36,7 +36,7 @@ def load_embedding_and_build_vocab(file_path):
     for i in range(0, 100): 
         oov_word = '<OOV' + str(i) + '>'
         vocab.append(oov_word)
-        word_embeddings.append(list(np.random.normal(scale=0.01, size=300)))
+        word_embeddings.append(list(np.random.normal(scale=1, size=300)))
     vocab.append('<PAD>')
     word_embeddings.append(list(np.zeros(300)))
     index_to_word = dict(enumerate(vocab))
