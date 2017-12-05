@@ -1,7 +1,7 @@
 **/.ipynb_checkpoints
 **/.DS_Store
 **/.out
-
+**/.pyc
 
 # Prerequisites
 *.d
