@@ -9,11 +9,31 @@ import random
 import numpy as np
 from recurrent_BatchNorm import recurrent_BatchNorm
 from utils import *
+import argparse
+
+# add parameters
+parser = argparse.ArgumentParser(description='gru_att_wbw')
+parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate (default: 0.05)')
+parser.add_argument('--weight_decay', default= 0.0003, type = float, help='weight_decay')
+parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
+parser.add_argument('--embedding_dim', default=150, type=int, help='embedding dim (default: 300)')
+parser.add_argument('--hidden_dim', default=300, type=int, help='hidden dim (default: 200)')
+parser.add_argument('--dropout', default= 0.1, type = float, help='dropout rate')
+parser.add_argument('--pretrained_embed', default= 'glove.6B.300d', type = str, help='pretrained_embed')
+parser.add_argument('--save_model', help='save encoder', default= 'gru_att_wbw.pt')
+
+args = parser.parse_args()
 
 
 use_cuda = torch.cuda.is_available()
 dtype = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 PAD_TOKEN = 0
+
+
+if(use_cuda):
+    device = None
+else:
+    device = -1
 
 
 class RTE(nn.Module):
@@ -257,8 +277,10 @@ class RTE(nn.Module):
             return variable.data.numpy()
 
 
-def training_loop(model, loss, optimizer, train_iter, dev_iter):
+def training_loop(model, loss, optimizer, train_iter, dev_iter, lr):
     step = 0
+    best_dev_acc = 0
+    anneal_counter = 0
     for i in range(num_train_steps):
         model.train()
         for batch in train_iter:
@@ -267,17 +289,40 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter):
             labels = batch.label - 1
             model.zero_grad()
         
-            output = model(premise, hypothesis)
-            
-            lossy = loss(output, labels)
+            if use_cuda:
+                output = model(premise.cuda(), hypothesis.cuda())
+            else:
+                output = model(premise, hypothesis)
+
+            if use_cuda:
+                lossy = loss(output, labels.cuda())
+            else:
+                lossy = loss(output, labels)
+
             #print(lossy)
             lossy.backward()
             optimizer.step()
 
-            if step % 10 == 0:
-                print( "Step %i; Loss %f; Dev acc %f" %(step, lossy.data[0], evaluate(model, dev_iter)))
 
+            if step % 100 == 0:
+                dev_acc = evaluate(model, dev_iter)
+                if dev_acc > best_dev_acc:
+                    best_dev_acc = dev_acc
+                    torch.save(model.state_dict(), args.save_model)
+                    anneal_counter = 0
+                if dev_acc <= best_dev_acc:
+                        anneal_counter += 1
+                        if anneal_counter == 100:
+                            print('Annealing learning rate')
+                            lr = lr * 0.95 # learning rate decay ratio (not sure)
+                            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+                            anneal_counter = 0
+                print("Step %i; Loss %f; Dev acc %f; Best dev acc %f; learning rate %f" % (step, lossy.data[0], dev_acc, best_dev_acc,lr))
+                sys.stdout.flush()
+            if step >= num_train_steps:
+                return best_dev_acc
             step += 1
+
 
 
 def evaluate(model, data_iter):
@@ -288,14 +333,22 @@ def evaluate(model, data_iter):
         premise = batch.premise.transpose(0,1)
         hypothesis = batch.hypothesis.transpose(0,1)
         labels = (batch.label-1).data
-        output = model(premise, hypothesis)
+
+        if use_cuda:
+            output = model(premise.cuda(), hypothesis.cuda())
+        else:
+            output = model(premise, hypothesis)
+
         _, predicted = torch.max(output.data, 1)
         total += labels.size(0)
-        correct += (predicted == labels).sum()
+
+        if use_cuda:
+            correct += (predicted == labels.cuda()).sum()
+        else:
+            correct += (predicted == labels).sum()
+
     model.train()
     return correct / float(total)
-
-
 
 
 def main():
@@ -306,7 +359,7 @@ def main():
 	train, dev, test = datasets.SNLI.splits(inputs, answers)
 
 	# get input embeddings
-	inputs.build_vocab(train, vectors='glove.6B.300d')
+	inputs.build_vocab(train, vectors=args.pretrained_embed)
 	answers.build_vocab(train)
 
 	# global params
@@ -315,25 +368,28 @@ def main():
 	input_size = vocab_size
 	num_train_steps = 50000000
 
-	train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size=32, device=-1)
+	train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size= args.batch_size, device=device)
 
 	
-	model = RTE(input_size, EMBEDDING_DIM = 100, HIDDEN_DIM = 300, WBW_ATTN = True )
-	
+	model = RTE(input_size, EMBEDDING_DIM = args.embedding_dim, HIDDEN_DIM = args.hidden_dim, WBW_ATTN = True )
+
+	if use_cuda:
+		model.cuda()
+
 	# Loss
 	loss = nn.CrossEntropyLoss()
 
 	# Optimizer
 	para2 = model.parameters()
-	optimizer = torch.optim.Adagrad(para2, lr=0.001, weight_decay=5e-5)
+	optimizer = torch.optim.Adam(para2, lr=args.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay= args.weight_decay)
 
 	# Train the model
-	best_dev_acc = training_loop(model, loss, optimizer, train_iter, dev_iter)
-	print(best_dev_acc)
+	training_loop(model, loss, optimizer, train_iter, dev_iter, args.learning_rate)
+
 
 
 if __name__ == '__main__':
-    main()
+	main()
 
 
 
