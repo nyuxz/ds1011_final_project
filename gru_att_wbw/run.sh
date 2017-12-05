@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #SBATCH --cpus-per-task=2
-#SBATCH --time=40:00:00
+#SBATCH --time=00:05:00
 #SBATCH --mem=10GB
 #SBATCH --job-name=DecompAtt
 #SBATCH --mail-type=END
