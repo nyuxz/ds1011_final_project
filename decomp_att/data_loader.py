@@ -45,9 +45,9 @@ def load_embedding_and_build_vocab(file_path):
 
     with open(file_path, 'r') as f:
         for i, line in enumerate(f):
+            line = line.split()
             if len(line) < 301:
                 continue
-            line = line.split()
             word = ' '.join(line[:-300])
             vector = [float(x) for x in line[-300:]]
             vocab.append(word)
