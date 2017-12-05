@@ -14,8 +14,8 @@ import sys
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
-parser.add_argument('--learning_rate', default=0.05, help='learning rate')
-parser.add_argument('--initial_accumulator_value', default=0.1, help='initial accumulator value')
+parser.add_argument('--learning_rate', default=0.05, type=float, help='learning rate')
+parser.add_argument('--initial_accumulator_value', type=float, default=0.0, help='initial accumulator value')
 parser.add_argument('--encoder_path', default='encoder.pt', help='save encoder')
 parser.add_argument('--model_path', default='model.pt', help='save model')
 args = parser.parse_args()
@@ -136,7 +136,7 @@ class DecomposableAttention(nn.Module):
 
 
 def train(batch_size, use_shrinkage, num_train_steps, initial_accumulator_value, learning_rate, encoder_path, model_path, to_lower):
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/fasttext.simple.300d')
 
     training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index, to_lower)
     train_iter = batch_iter(dataset=training_set, batch_size=batch_size, shuffle=True)
