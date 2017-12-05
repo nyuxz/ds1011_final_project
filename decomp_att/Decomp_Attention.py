@@ -14,6 +14,8 @@ import sys
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
+parser.add_argument('--learning_rate', default=0.01, help='learning rate')
+parser.add_argument('--initial_accumulator_value', default=0.0, help='initial accumulator value')
 parser.add_argument('--encoder_path', default='encoder.pt', help='save encoder')
 parser.add_argument('--model_path', default='model.pt', help='save model')
 args = parser.parse_args()
@@ -133,13 +135,13 @@ class DecomposableAttention(nn.Module):
         return out
 
 
-def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path, to_lower):
+def train(batch_size, use_shrinkage, num_train_steps, initial_accumulator_value, learning_rate, encoder_path, model_path, to_lower):
     vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
 
     training_set = process_snli('../data/snli_1.0_train.jsonl', word_to_index, to_lower)
     train_iter = batch_iter(dataset=training_set, batch_size=batch_size, shuffle=True)
     dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower)
-    dev_iter = batch_iter(dataset=dev_set, batch_size=batch_size, shuffle=True)
+    dev_iter = batch_iter(dataset=dev_set, batch_size=batch_size, shuffle=False)
 
     num_batch = len(dev_set) // batch_size
 
@@ -163,18 +165,18 @@ def train(batch_size, use_shrinkage, num_train_steps, encoder_path, model_path, 
     # Optimizer
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
     para2 = model.parameters()
-    input_optimizer = torch.optim.Adagrad(para1, lr=0.05, weight_decay=0)
-    optimizer = torch.optim.Adagrad(para2, lr=0.05, weight_decay=0)
+    input_optimizer = torch.optim.Adagrad(para1, lr=0.01, weight_decay=0)
+    optimizer = torch.optim.Adagrad(para2, lr=0.01, weight_decay=0)
 
     # Initialize the optimizer
     for group in input_optimizer.param_groups:
         for p in group['params']:
             state = input_optimizer.state[p]
-            state['sum'] += 0.1
+            state['sum'] += initial_accumulator_value
     for group in optimizer.param_groups:
         for p in group['params']:
             state = optimizer.state[p]
-            state['sum'] += 0.1
+            state['sum'] += initial_accumulator_value
 
     # Loss
     loss = nn.NLLLoss()
@@ -277,4 +279,5 @@ def evaluate(model, input_encoder, data_iter, num_batch, use_cuda):
 
 
 if __name__ == '__main__':
-    train(batch_size=args.batch_size, use_shrinkage=False, num_train_steps=50000000, encoder_path=args.encoder_path, model_path=args.model_path, to_lower=True)
+    train(batch_size=args.batch_size, use_shrinkage=False, num_train_steps=50000000, initial_accumulator_value=args.initial_accumulator_value, 
+          learning_rate=args.learning_rate, encoder_path=args.encoder_path, model_path=args.model_path, to_lower=True)

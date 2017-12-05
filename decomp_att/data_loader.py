@@ -26,6 +26,7 @@ def process_snli(file_path, word_to_index, to_lower):
                 example['hypothesis_to_words'] = [word for word in example['hypothesis'].split(' ')]
                 example['premise_to_tokens'] = [word_to_index[word] if word in word_to_index.keys() else (hash(word) % 100) for word in example['premise_to_words']]
                 example['hypothesis_to_tokens'] = [word_to_index[word] if word in word_to_index.keys() else (hash(word) % 100) for word in example['hypothesis_to_words']]
+                example['max_length'] = max(len(example['premise_to_tokens']), len(example['hypothesis_to_tokens']))
                 data.append(example)
     return data
 
@@ -55,10 +56,20 @@ def load_embedding_and_build_vocab(file_path):
     return vocab, np.array(word_embeddings), word_to_index, index_to_word
 
 
-def batch_iter(dataset, batch_size, shuffle=True):
+def semi_sort_data(data):
+    return [example for example in data if example['max_length'] < 20] + \
+           [example for example in data if 20 <= example['max_length'] < 50] +\
+           [example for example in data if example['max_length'] >= 50]
+
+
+def batch_iter(dataset, batch_size, shuffle):
     start = -1 * batch_size
     dataset_size = len(dataset)
-    index_list = list(range(dataset_size))
+
+    if shuffle:
+        semi_sort_data(dataset)
+    
+    index_list = list(range(len(dataset)))
 
     while True:
         start += batch_size
@@ -67,8 +78,6 @@ def batch_iter(dataset, batch_size, shuffle=True):
         hypothesis = []
         if start > dataset_size - batch_size:
             start = 0
-            if shuffle:
-                random.shuffle(index_list)
         batch_indices = index_list[start:start + batch_size]
         batch = [dataset[index] for index in batch_indices]
         for k in batch:
@@ -89,5 +98,3 @@ if __name__ == '__main__':
     vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
     dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower=True)
     dev_iter = batch_iter(dataset=dev_set, batch_size=4, shuffle=True)
-    # print(next(dev_iter))
-
