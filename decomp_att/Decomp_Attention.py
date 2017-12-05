@@ -14,8 +14,8 @@ import sys
 # add parameters
 parser = argparse.ArgumentParser(description='decomposable_attention')
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
-parser.add_argument('--learning_rate', default=0.01, help='learning rate')
-parser.add_argument('--initial_accumulator_value', default=0.0, help='initial accumulator value')
+parser.add_argument('--learning_rate', default=0.05, help='learning rate')
+parser.add_argument('--initial_accumulator_value', default=0.1, help='initial accumulator value')
 parser.add_argument('--encoder_path', default='encoder.pt', help='save encoder')
 parser.add_argument('--model_path', default='model.pt', help='save model')
 args = parser.parse_args()
@@ -165,8 +165,8 @@ def train(batch_size, use_shrinkage, num_train_steps, initial_accumulator_value,
     # Optimizer
     para1 = filter(lambda p: p.requires_grad, input_encoder.parameters())
     para2 = model.parameters()
-    input_optimizer = torch.optim.Adagrad(para1, lr=0.01, weight_decay=0)
-    optimizer = torch.optim.Adagrad(para2, lr=0.01, weight_decay=0)
+    input_optimizer = torch.optim.Adagrad(para1, lr=learning_rate, weight_decay=0)
+    optimizer = torch.optim.Adagrad(para2, lr=learning_rate, weight_decay=0)
 
     # Initialize the optimizer
     for group in input_optimizer.param_groups:
