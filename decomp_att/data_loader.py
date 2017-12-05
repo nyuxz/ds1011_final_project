@@ -45,6 +45,8 @@ def load_embedding_and_build_vocab(file_path):
 
     with open(file_path, 'r') as f:
         for i, line in enumerate(f):
+            if len(line) < 301:
+                continue
             line = line.split()
             word = ' '.join(line[:-300])
             vector = [float(x) for x in line[-300:]]
@@ -95,6 +97,6 @@ def batch_iter(dataset, batch_size, shuffle):
 
 if __name__ == '__main__':
     # Test
-    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/glove.6B.300d.txt')
+    vocab, word_embeddings, word_to_index, index_to_word = load_embedding_and_build_vocab('../data/fasttext.simple.300d')
     dev_set = process_snli('../data/snli_1.0_dev.jsonl', word_to_index, to_lower=True)
     dev_iter = batch_iter(dataset=dev_set, batch_size=4, shuffle=True)
