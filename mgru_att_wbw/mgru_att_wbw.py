@@ -347,7 +347,7 @@ def main():
 
 	model = RTE(input_size, EMBEDDING_DIM = args.embedding_dim, HIDDEN_DIM = args.hidden_dim)
 	# Loss
-	loss = nn.CrossEntropyLoss()
+	loss = nn.NLLLoss()
 
 	# Optimizer
 	para2 = model.parameters()
