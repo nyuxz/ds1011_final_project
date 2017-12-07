@@ -377,7 +377,7 @@ def main():
 		model.cuda()
 
 	# Loss
-	loss = nn.CrossEntropyLoss()
+	loss = nn.NLLLoss()
 
 	# Optimizer
 	para2 = model.parameters()
