@@ -14,13 +14,13 @@ import argparse
 # add parameters
 parser = argparse.ArgumentParser(description='mgru_att')
 parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate (default: 0.05)')
-parser.add_argument('--weight_decay', default= 0.0003, type = float, help='weight_decay')
-parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
+parser.add_argument('--weight_decay', default=0, type=float, help='weight_decay')
+parser.add_argument('--batch_size', default=30, type=int, help='batch size (default: 32)')
 parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
 parser.add_argument('--hidden_dim', default=150, type=int, help='hidden dim (default: 150)')
-parser.add_argument('--dropout', default= 0.1, type = float, help='dropout rate')
-parser.add_argument('--pretrained_embed', default= 'glove.6B.300d', type = str, help='pretrained_embed')
-parser.add_argument('--save_model', help='save encoder', default= 'mgru_att.pt')
+parser.add_argument('--dropout', default=0.1, type = float, help='dropout rate')
+parser.add_argument('--pretrained_embed', default='glove.6B.300d', type=str, help='pretrained_embed')
+parser.add_argument('--save_model', help='save encoder', default='mgru_att.pt')
 
 args = parser.parse_args()
 
@@ -43,12 +43,12 @@ class RTE(nn.Module):
         self.n_dim = HIDDEN_DIM if HIDDEN_DIM % 2 == 0 else HIDDEN_DIM - 1
         self.n_out = 3
         self.embedding = nn.Embedding(input_size, self.n_embed， padding_idx=1).type(dtype)
-    
+
         self.p_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
         self.h_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
         self.out = nn.Linear(self.n_dim, self.n_out).type(dtype)
 
-        
+
         # Attention Parameters
         self.W_y = nn.Parameter(torch.randn(self.n_dim, self.n_dim).cuda()) if use_cuda else nn.Parameter(torch.randn(self.n_dim, self.n_dim))  # n_dim x n_dim
         self.register_parameter('W_y', self.W_y)
@@ -58,9 +58,9 @@ class RTE(nn.Module):
         self.register_parameter('W_r', self.W_r)
         self.W_alpha = nn.Parameter(torch.randn(self.n_dim, 1).cuda()) if use_cuda else nn.Parameter(torch.randn(self.n_dim, 1))  # n_dim x 1
         self.register_parameter('W_alpha', self.W_alpha)
-        
+
         '''
-       
+
         if WBW_ATTN:
             # Since the word by word attention layer is a simple rnn, it suffers from the gradient exploding problem
             # A way to circumvent that is having orthonormal initialization of the weight matrix
@@ -71,10 +71,10 @@ class RTE(nn.Module):
             self.batch_norm_h_r = recurrent_BatchNorm(self.n_dim, 30).type(dtype) # 'MAX_LEN' = 30
             self.batch_norm_r_r = recurrent_BatchNorm(self.n_dim, 30).type(dtype)
         '''
-        
+
         # Match GRU parameters.
         self.m_gru = nn.GRU(self.n_dim + self.n_dim, self.n_dim, bidirectional=False).type(dtype)
- 
+
 
     def init_hidden(self, batch_size):
         hidden_p = Variable(torch.zeros(1, batch_size, self.n_dim).type(dtype))
@@ -186,7 +186,7 @@ class RTE(nn.Module):
                 mask_t : batch,
             '''
             a_t, alpha = self._attention_forward(o_p, mask_p, h_t, r_tm1)   # a_t : batch x n_dim
-                                                                            # alpha : batch x T                                                                         
+                                                                            # alpha : batch x T
             alpha_vec[ix] = alpha
             m_t = torch.cat([a_t, h_t], dim=-1)
             r_t, _ = self.m_gru(m_t.unsqueeze(0), r_tm1.unsqueeze(0))
@@ -234,7 +234,7 @@ class RTE(nn.Module):
         h_star, alpha_vec = self._attn_gru_forward(o_h, mask_h, r_0, o_p, mask_p)
 
         h_star = self.out(h_star)  # batch x num_classes
-        
+
         '''
         if self.options['LAST_NON_LINEAR']:
             h_star = F.leaky_relu(h_star)  # Non linear projection
@@ -255,29 +255,26 @@ class RTE(nn.Module):
 def training_loop(model, loss, optimizer, train_iter, dev_iter, lr):
     step = 0
     best_dev_acc = 0
-    anneal_counter = 0
-    for i in range(num_train_steps):
+    iteration = 0
+
+    while step <= num_train_steps:
         model.train()
         for batch in train_iter:
             premise = batch.premise.transpose(0, 1)
             hypothesis = batch.hypothesis.transpose(0, 1)
             labels = batch.label - 1
             model.zero_grad()
-        
             if use_cuda:
                 output = model(premise.cuda(), hypothesis.cuda())
             else:
                 output = model(premise, hypothesis)
-
             if use_cuda:
                 lossy = loss(output, labels.cuda())
             else:
                 lossy = loss(output, labels)
 
-            #print(lossy)
             lossy.backward()
             optimizer.step()
-
 
             if step % 100 == 0:
                 dev_acc = evaluate(model, dev_iter)
@@ -285,19 +282,16 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, lr):
                     best_dev_acc = dev_acc
                     torch.save(model.state_dict(), args.save_model)
                     anneal_counter = 0
-                if dev_acc <= best_dev_acc:
-                        anneal_counter += 1
-                        if anneal_counter == 100:
-                            print('Annealing learning rate')
-                            lr = lr * 0.95 # learning rate decay ratio (not sure)
-                            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-                            anneal_counter = 0
                 print("Step %i; Loss %f; Dev acc %f; Best dev acc %f; learning rate %f" % (step, lossy.data[0], dev_acc, best_dev_acc,lr))
                 sys.stdout.flush()
+                        
             if step >= num_train_steps:
                 return best_dev_acc
             step += 1
 
+        lr = lr * 0.95 ** iteration
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        iteration += 1
 
 
 def evaluate(model, data_iter):
@@ -345,7 +339,7 @@ def main():
 
 	train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size= args.batch_size, device=device)
 
-	model = RTE(input_size, EMBEDDING_DIM = args.embedding_dim, HIDDEN_DIM = args.hidden_dim)
+	model = RTE(input_size, EMBEDDING_DIM=args.embedding_dim, HIDDEN_DIM=args.hidden_dim)
 	# Loss
 	loss = nn.NLLLoss()
 
@@ -358,6 +352,3 @@ def main():
 
 if __name__ == '__main__':
 	main()
-
-
-
