@@ -42,7 +42,7 @@ class RTE(nn.Module):
         self.n_embed = EMBEDDING_DIM
         self.n_dim = HIDDEN_DIM if HIDDEN_DIM % 2 == 0 else HIDDEN_DIM - 1
         self.n_out = 3
-        self.embedding = nn.Embedding(input_size, self.n_embed).type(dtype)
+        self.embedding = nn.Embedding(input_size, self.n_embed， padding_idx=1).type(dtype)
     
         self.p_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
         self.h_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
