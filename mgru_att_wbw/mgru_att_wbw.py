@@ -304,9 +304,6 @@ def training_loop(model, loss, optimizer, train_iter, dev_iter, lr):
                     best_dev_acc = dev_acc
                     torch.save(model.state_dict(), args.save_model)
                     anneal_counter = 0
-                print("Step %i; Loss %f; Dev acc %f; Best dev acc %f; learning rate %f" % (
-                    step, lossy.data[0], dev_acc, best_dev_acc, lr))
-                sys.stdout.flush()
                 if dev_acc <= best_dev_acc:
                     anneal_counter += 1
                     if anneal_counter == 100:
