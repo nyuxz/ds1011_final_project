@@ -16,10 +16,10 @@ parser = argparse.ArgumentParser(description='gru_att_wbw')
 parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate (default: 0.05)')
 parser.add_argument('--weight_decay', default= 0.0003, type = float, help='weight_decay')
 parser.add_argument('--batch_size', default=32, type=int, help='batch size (default: 32)')
-parser.add_argument('--embedding_dim', default=150, type=int, help='embedding dim (default: 300)')
-parser.add_argument('--hidden_dim', default=300, type=int, help='hidden dim (default: 200)')
+parser.add_argument('--embedding_dim', default=300, type=int, help='embedding dim (default: 300)')
+parser.add_argument('--hidden_dim', default=150, type=int, help='hidden dim (default: 150)')
 parser.add_argument('--dropout', default= 0.1, type = float, help='dropout rate')
-parser.add_argument('--pretrained_embed', default= 'glove.6B.300d', type = str, help='pretrained_embed')
+parser.add_argument('--pretrained_embed', default= 'fasttext.simple.300d', type = str, help='pretrained_embed')
 parser.add_argument('--save_model', help='save encoder', default= 'gru_att_wbw.pt')
 
 args = parser.parse_args()
@@ -37,14 +37,15 @@ else:
 
 
 class RTE(nn.Module):
-    def __init__(self, input_size, EMBEDDING_DIM, HIDDEN_DIM, WBW_ATTN):
+    def __init__(self, input_size, w_emb, EMBEDDING_DIM, HIDDEN_DIM, WBW_ATTN):
         super(RTE, self).__init__()
         self.n_embed = EMBEDDING_DIM
         self.n_dim = HIDDEN_DIM if HIDDEN_DIM % 2 == 0 else HIDDEN_DIM - 1
         self.n_out = 3
-        self.embedding = nn.Embedding(input_size, self.n_embed).type(dtype)
+        self.embedding = nn.Embedding(input_size, self.n_embed,  padding_idx=1).type(dtype)
+        self.embedding.weight = nn.Parameter(w_emb)
+        self.embedding.requires_grad = False
         self.WBW_ATTN = WBW_ATTN
-    
         self.p_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
         self.h_gru = nn.GRU(self.n_embed, self.n_dim, bidirectional=False).type(dtype)
         self.out = nn.Linear(self.n_dim, self.n_out).type(dtype)
@@ -367,17 +368,18 @@ def main():
 	vocab_size = len(inputs.vocab)
 	input_size = vocab_size
 	num_train_steps = 50000000
-
+	word_vecs = inputs.vocab.vectors
 	train_iter, dev_iter, test_iter = data.BucketIterator.splits((train, dev, test), batch_size= args.batch_size, device=device)
 
 	
-	model = RTE(input_size, EMBEDDING_DIM = args.embedding_dim, HIDDEN_DIM = args.hidden_dim, WBW_ATTN = True )
+	model = RTE(input_size, w_emb = word_vecs, EMBEDDING_DIM = args.embedding_dim, HIDDEN_DIM = args.hidden_dim, WBW_ATTN = False )
+        
 
 	if use_cuda:
 		model.cuda()
 
 	# Loss
-	loss = nn.CrossEntropyLoss()
+	loss = nn.NLLLoss()
 
 	# Optimizer
 	para2 = model.parameters()
