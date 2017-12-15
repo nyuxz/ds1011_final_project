@@ -43,14 +43,14 @@ else:
 
 
 class RTE(nn.Module):
-    def __init__(self, input_size, EMBEDDING_DIM, HIDDEN_DIM):
+    def __init__(self, input_size, w_emb, EMBEDDING_DIM, HIDDEN_DIM):
         super(RTE, self).__init__()
         self.n_embed = EMBEDDING_DIM
         self.n_dim = HIDDEN_DIM if HIDDEN_DIM % 2 == 0 else HIDDEN_DIM - 1
         self.n_out = 3
-        self.embedding = nn.Embedding(
-            input_size, self.n_embed, padding_idx=1).type(dtype)
-
+        self.embedding = nn.Embedding(input_size, self.n_embed, padding_idx=1).type(dtype)
+        self.embedding.weight = nn.Parameter(w_emb)
+        self.embedding.requires_grad = False
         self.p_gru = nn.GRU(self.n_embed, self.n_dim,
                             bidirectional=False).type(dtype)
         self.h_gru = nn.GRU(self.n_embed, self.n_dim,
@@ -360,11 +360,13 @@ def main():
     vocab_size = len(inputs.vocab)
     input_size = vocab_size
     num_train_steps = 50000000
+    word_vecs = inputs.vocab.vectors
+
 
     train_iter, dev_iter, test_iter = data.BucketIterator.splits(
         (train, dev, test), batch_size=args.batch_size, device=device)
 
-    model = RTE(input_size, EMBEDDING_DIM=args.embedding_dim,
+    model = RTE(input_size, w_emb = word_vecs, EMBEDDING_DIM=args.embedding_dim,
                 HIDDEN_DIM=args.hidden_dim)
     # Loss
     loss = nn.NLLLoss()
