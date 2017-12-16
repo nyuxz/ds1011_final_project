@@ -368,6 +368,8 @@ def main():
 
     model = RTE(input_size, w_emb = word_vecs, EMBEDDING_DIM=args.embedding_dim,
                 HIDDEN_DIM=args.hidden_dim)
+    if use_cuda: 
+        model.cuda()
     # Loss
     loss = nn.NLLLoss()
 
